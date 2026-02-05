@@ -1,0 +1,34 @@
+{
+    "manifest_version": 3,
+    "name": "Discord to Jira Supporter",
+    "version": "1.0",
+    "description": "Discordのメッセージを右クリックしてJiraチケットを起票します。",
+    "permissions": [
+        "contextMenus",
+        "storage",
+        "activeTab",
+        "scripting"
+    ],
+    "host_permissions": [
+        "https://discord.com/*",
+        "https://*.atlassian.net/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "options_ui": {
+        "page": "options.html",
+        "open_in_tab": false
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://discord.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ]
+}
