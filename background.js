@@ -105,7 +105,11 @@ async function createJiraTicket(data, tabId) {
         }
     }
 
-    const summary = data.summary || `[Discord] Message from ${data.author} in #${data.channelName}`;
+    // Prefix処理: UIで選択されたものがあればそれを使う。
+    // options.titlePrefix (presets) はここでは直接参照せず、data経由で渡された選択結果を使う。
+    const prefix = data.selectedPrefix ? (data.selectedPrefix + ' ') : '';
+    const rawSummary = data.summary || `Message from ${data.author} in #${data.channelName}`;
+    const summary = `${prefix}${rawSummary}`;
 
     // テンプレートを使用して ADF (Description) を生成
     const description = parseTemplateToADF(config.descTemplate, data);
