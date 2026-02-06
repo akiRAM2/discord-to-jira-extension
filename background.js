@@ -145,6 +145,19 @@ async function createJiraTicket(data, tabId) {
         body.fields.assignee = { id: config.accountId };
     }
 
+    // Start Date と Due Date を設定
+    // Start Date: Discord の発言時間
+    if (data.timestamp) {
+        // JIRA の日付フィールドは YYYY-MM-DD 形式
+        const startDate = new Date(data.timestamp);
+        body.fields.customfield_10015 = startDate.toISOString().split('T')[0]; // Start Date (customfield_10015 は一般的な Start Date のフィールド ID)
+
+        // Due Date: Start Date の +2 日
+        const dueDate = new Date(startDate);
+        dueDate.setDate(dueDate.getDate() + 2);
+        body.fields.duedate = dueDate.toISOString().split('T')[0];
+    }
+
     try {
         const url = `https://${config.jiraDomain}/rest/api/3/issue`;
         console.log("Sending request to Jira:", url, body);
