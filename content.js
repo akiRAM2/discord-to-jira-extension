@@ -51,7 +51,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-function extractMessageInfo(target, titlePrefix) {
+function extractMessageInfo(target) {
     if (!target) return { error: "No element selected" };
 
     // message-content (テキスト本文付近) を直接クリックしたか確認
@@ -254,9 +254,7 @@ function extractMessageInfo(target, titlePrefix) {
         defaultSummary = `Message from ${author} in ${displayChannelName}`;
     }
 
-    if (titlePrefix) {
-        defaultSummary = `${titlePrefix} ${defaultSummary}`;
-    }
+    // Prefix付与はここでは行わなくなった (Modalで行う)
 
     const result = {
         defaultSummary: defaultSummary, // promptではなくmodal用に保持する
