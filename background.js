@@ -13,16 +13,18 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "createJiraTicket") {
 
-        // 設定からPrefixとParentKey(Presets)を取得してContent Scriptに渡す
-        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '' }, (items) => {
+        // 設定からPrefixとParentKey(Presets)と詳細設定を取得してContent Scriptに渡す
+        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '', lang: 'en' }, (items) => {
             const titlePrefix = items.titlePrefix;
             const parentKeyPresets = items.parentKey;
+            const lang = items.lang;
 
             // Content scriptにメッセージを送ってデータ抽出を依頼
             chrome.tabs.sendMessage(tab.id, {
                 action: "extractMessage",
                 titlePrefix: titlePrefix,
-                parentKeyPresets: parentKeyPresets
+                parentKeyPresets: parentKeyPresets,
+                lang: lang
             }, (response) => {
                 if (chrome.runtime.lastError) {
                     console.error(chrome.runtime.lastError.message);

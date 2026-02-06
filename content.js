@@ -14,6 +14,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // 設定されたPrefixを受け取る (無ければデフォルト)
                 const titlePrefix = request.titlePrefix !== undefined ? request.titlePrefix : "[Discord]";
                 const parentKeyPresetsStr = request.parentKeyPresets || "";
+                const lang = request.lang || "en";
 
                 const data = extractMessageInfo(lastClickedElement, titlePrefix);
 
@@ -28,7 +29,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     .map(k => k.trim())
                     .filter(k => k.length > 0);
 
-                const userInput = await openTicketModal(data.defaultSummary, validParentKeys);
+                const userInput = await openTicketModal(data.defaultSummary, validParentKeys, lang);
 
                 // データを更新
                 data.summary = userInput.summary;
@@ -273,7 +274,29 @@ function extractMessageInfo(target, titlePrefix) {
 
 // --- Modal UI ---
 
-function openTicketModal(defaultSummary, parentKeys) {
+function openTicketModal(defaultSummary, parentKeys, lang = 'en') {
+    const texts = {
+        en: {
+            header: "Create Jira Ticket",
+            titleLabel: "Ticket Title",
+            parentLabel: "Parent Issue / Epic (Optional)",
+            none: "None",
+            cancel: "Cancel",
+            create: "Create Ticket",
+            alertTitle: "Title is required"
+        },
+        ja: {
+            header: "Jiraチケットを作成",
+            titleLabel: "チケットタイトル",
+            parentLabel: "親課題 / エピック (任意)",
+            none: "なし",
+            cancel: "キャンセル",
+            create: "チケット作成",
+            alertTitle: "タイトルは必須です"
+        }
+    };
+    const t = texts[lang] || texts.en;
+
     return new Promise((resolve, reject) => {
         // 既存のモーダルがあれば削除
         const existing = document.getElementById('jira-ext-modal-overlay');
@@ -315,14 +338,14 @@ function openTicketModal(defaultSummary, parentKeys) {
 
         // Header
         const header = document.createElement('h2');
-        header.textContent = 'Create Jira Ticket';
+        header.textContent = t.header;
         header.style.margin = '0 0 5px 0';
         header.style.fontSize = '18px';
         modal.appendChild(header);
 
         // Title Input
         const titleLabel = document.createElement('label');
-        titleLabel.textContent = 'Ticket Title';
+        titleLabel.textContent = t.titleLabel;
         titleLabel.style.fontWeight = 'bold';
         titleLabel.style.fontSize = '12px';
         modal.appendChild(titleLabel);
@@ -345,7 +368,7 @@ function openTicketModal(defaultSummary, parentKeys) {
         // プリセットがあればラジオボタンを表示
         if (parentKeys && parentKeys.length > 0) {
             const parentLabel = document.createElement('label');
-            parentLabel.textContent = 'Parent Issue / Epic (Optional)';
+            parentLabel.textContent = t.parentLabel;
             parentLabel.style.fontWeight = 'bold';
             parentLabel.style.fontSize = '12px';
             parentLabel.style.marginTop = '5px';
@@ -374,7 +397,7 @@ function openTicketModal(defaultSummary, parentKeys) {
             noneRadio.value = '';
             noneRadio.checked = true; // Default
             noneLabel.appendChild(noneRadio);
-            noneLabel.appendChild(document.createTextNode('None'));
+            noneLabel.appendChild(document.createTextNode(t.none));
             radioContainer.appendChild(noneLabel);
 
             parentKeys.forEach((key, index) => {
@@ -412,7 +435,7 @@ function openTicketModal(defaultSummary, parentKeys) {
         });
 
         const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = t.cancel;
         Object.assign(cancelBtn.style, {
             padding: '8px 16px',
             border: 'none',
@@ -427,7 +450,7 @@ function openTicketModal(defaultSummary, parentKeys) {
         };
 
         const createBtn = document.createElement('button');
-        createBtn.textContent = 'Create Ticket';
+        createBtn.textContent = t.create;
         Object.assign(createBtn.style, {
             padding: '8px 16px',
             border: 'none',
@@ -441,7 +464,7 @@ function openTicketModal(defaultSummary, parentKeys) {
         createBtn.onclick = () => {
             const finalSummary = titleInput.value;
             if (!finalSummary) {
-                alert('Title is required');
+                alert(t.alertTitle);
                 return;
             }
 
