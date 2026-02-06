@@ -1,69 +1,51 @@
+// background.js
+
+// インストール時に初期設定を保存
 chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
         id: "createJiraTicket",
         title: "Create Jira Ticket",
-        contexts: ["selection", "page", "link"],
-        documentUrlPatterns: ["https://discord.com/*"]
+        contexts: ["all"] // テキスト選択外でも使えるように変更
     });
 });
 
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+// コンテキストメニューがクリックされた時の処理
+chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "createJiraTicket") {
-        try {
-            // まずメッセージ送信を試みる
-            const response = await sendMessageToTab(tab.id, { action: "extractMessage" });
-            handleResponse(response, tab.id);
-        } catch (err) {
-            console.warn("Initial connection failed, trying to inject script...", err);
 
-            // 失敗したらスクリプトを注入して再試行
-            try {
-                await chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    files: ["content.js"]
-                });
+        // 設定からPrefixを取得してContent Scriptに渡す
+        chrome.storage.sync.get({ titlePrefix: '[Discord]' }, (items) => {
+            const titlePrefix = items.titlePrefix;
 
-                // 注入直後は少し待つ必要あがある場合もあるが、まずは即試行
-                // content.jsの実行完了を待つのでawaitだけで十分なはずだが、
-                // リスナー登録のタイミング問題があるため少し待つ
-                setTimeout(async () => {
-                    try {
-                        // 再送信
-                        const response = await sendMessageToTab(tab.id, { action: "extractMessage" });
-                        handleResponse(response, tab.id);
-                    } catch (retryErr) {
-                        console.error("Retry failed", retryErr);
-                        alertUser(tab.id, "Error: Could not communicate with page. Please reload the Discord tab.\n\n" + retryErr.message);
-                    }
-                }, 200);
+            // Content scriptにメッセージを送ってデータ抽出を依頼
+            chrome.tabs.sendMessage(tab.id, { action: "extractMessage", titlePrefix: titlePrefix }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error(chrome.runtime.lastError.message);
+                    alertUser(tab.id, "Please reload the page and try again.");
+                    return;
+                }
 
-            } catch (injectErr) {
-                console.error("Injection failed", injectErr);
-                alertUser(tab.id, "Error: Failed to inject script. Please reload the page.\n\n" + injectErr.message);
-            }
-        }
+                if (response && response.error) {
+                    alertUser(tab.id, response.error);
+                } else if (response) {
+                    createJiraTicket(response, tab.id);
+                }
+            });
+        });
     }
 });
 
-function handleResponse(response, tabId) {
-    if (response && response.error) {
-        alertUser(tabId, response.error);
-        return;
-    }
-    createJiraTicket(response, tabId);
-}
+const defaultTemplate = `**Extracted from Discord Message**
 
-function sendMessageToTab(tabId, message) {
-    return new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, message, (response) => {
-            if (chrome.runtime.lastError) {
-                reject(chrome.runtime.lastError);
-            } else {
-                resolve(response);
-            }
-        });
-    });
-}
+- Author: {author}
+- Server: {server}
+- Channel: {channel}
+- Time: {time}
+- Link: [Open Message]({link})
+
+**Message Content**
+
+{content}`;
 
 async function createJiraTicket(data, tabId) {
     // 設定を読み込む
@@ -72,7 +54,10 @@ async function createJiraTicket(data, tabId) {
         email: '',
         apiToken: '',
         projectKey: '',
-        issueType: 'Task'
+        issueType: 'Task',
+        parentKey: '',
+        accountId: '',
+        descTemplate: defaultTemplate
     });
 
     if (!config.jiraDomain || !config.email || !config.apiToken || !config.projectKey) {
@@ -82,46 +67,38 @@ async function createJiraTicket(data, tabId) {
     }
 
     const authString = btoa(`${config.email}:${config.apiToken}`);
-    const summary = `[Discord] Message from ${data.author} in #${data.channelName}`;
 
-    // Atlassian Document Format (ADF) の構築
-    const description = {
-        type: "doc",
-        version: 1,
-        content: [
-            {
-                type: "paragraph",
-                content: [
-                    { type: "text", text: "Extracted from Discord Message", marks: [{ type: "strong" }] }
-                ]
-            },
-            {
-                type: "bulletList",
-                content: [
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: `Author: ${data.author}` }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: `Server: ${data.serverName}` }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: `Channel: ${data.channelName}` }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: `Time: ${new Date(data.timestamp).toLocaleString()}` }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Link: " }, { type: "text", text: "Open Message", marks: [{ type: "link", attrs: { href: data.messageLink } }] }] }] }
-                ]
-            },
-            {
-                type: "paragraph",
-                content: [] // Spacer
-            },
-            {
-                type: "heading",
-                attrs: { level: 3 },
-                content: [{ type: "text", text: "Message Content" }]
-            },
-            {
-                type: "paragraph",
-                content: [
-                    { type: "text", text: data.content }
-                ]
+    // Account IDが未取得の場合、myself APIから取得を試みる
+    if (!config.accountId) {
+        try {
+            console.log("Fetching Jira Account ID...");
+            const myselfUrl = `https://${config.jiraDomain}/rest/api/3/myself`;
+            const userResponse = await fetch(myselfUrl, {
+                method: "GET",
+                headers: {
+                    "Authorization": `Basic ${authString}`,
+                    "Accept": "application/json"
+                }
+            });
+
+            if (userResponse.ok) {
+                const userData = await userResponse.json();
+                config.accountId = userData.accountId;
+                // 取得したIDを保存しておく（次回以降のため）
+                await chrome.storage.sync.set({ accountId: config.accountId });
+                console.log("Account ID fetched and saved:", config.accountId);
+            } else {
+                console.warn("Failed to fetch user info:", userResponse.status);
             }
-        ]
-    };
+        } catch (e) {
+            console.warn("Error fetching user info:", e);
+        }
+    }
+
+    const summary = data.summary || `[Discord] Message from ${data.author} in #${data.channelName}`;
+
+    // テンプレートを使用して ADF (Description) を生成
+    const description = parseTemplateToADF(config.descTemplate, data);
 
     const body = {
         fields: {
@@ -131,6 +108,16 @@ async function createJiraTicket(data, tabId) {
             issuetype: { name: config.issueType }
         }
     };
+
+    // 親課題(Epic/Parent)が設定されている場合に追加
+    if (config.parentKey) {
+        body.fields.parent = { key: config.parentKey };
+    }
+
+    // 担当者が取得できている場合、設定する
+    if (config.accountId) {
+        body.fields.assignee = { id: config.accountId };
+    }
 
     try {
         const url = `https://${config.jiraDomain}/rest/api/3/issue`;
@@ -149,7 +136,12 @@ async function createJiraTicket(data, tabId) {
         if (response.status === 201) {
             const result = await response.json();
             console.log("Jira Response Success:", result);
-            alertUser(tabId, `Success! Ticket created: ${result.key}`);
+
+            // チケットのURLを生成して新しいタブで開く
+            const issueKey = result.key;
+            const browseUrl = `https://${config.jiraDomain}/browse/${issueKey}`;
+
+            chrome.tabs.create({ url: browseUrl });
         } else {
 
             const errorText = await response.text();
@@ -181,11 +173,124 @@ async function createJiraTicket(data, tabId) {
     }
 }
 
+// シンプルなMarkdown風テンプレートパーサー
+function parseTemplateToADF(template, data) {
+    // プレースホルダーの置換
+    let text = template
+        .replace(/{author}/g, data.author)
+        .replace(/{server}/g, data.serverName)
+        .replace(/{channel}/g, data.channelName)
+        .replace(/{time}/g, new Date(data.timestamp).toLocaleString())
+        .replace(/{link}/g, data.messageLink)
+        .replace(/{content}/g, data.content);
+
+    const doc = {
+        type: "doc",
+        version: 1,
+        content: []
+    };
+
+    // 行ごとに分割して処理
+    const lines = text.split('\n');
+    let currentList = null;
+
+    for (let line of lines) {
+        const trimmed = line.trim();
+
+        if (trimmed.length === 0) {
+            // 空行はリストの終了または段落区切り
+            if (currentList) {
+                doc.content.push(currentList);
+                currentList = null;
+            }
+            // 空の段落を追加してスペーサーとする
+            doc.content.push({ type: "paragraph", content: [] });
+            continue;
+        }
+
+        // リストアイテム (- Item)
+        if (trimmed.startsWith('- ')) {
+            if (!currentList) {
+                currentList = { type: "bulletList", content: [] };
+            }
+            const contentText = trimmed.substring(2);
+            currentList.content.push({
+                type: "listItem",
+                content: [{
+                    type: "paragraph",
+                    content: parseInlineFormatting(contentText)
+                }]
+            });
+        } else {
+            // 通常の段落 (リスト終了)
+            if (currentList) {
+                doc.content.push(currentList);
+                currentList = null;
+            }
+
+            doc.content.push({
+                type: "paragraph",
+                content: parseInlineFormatting(line)
+            });
+        }
+    }
+
+    if (currentList) {
+        doc.content.push(currentList);
+    }
+
+    // コンテンツが空にならないように調整
+    if (doc.content.length === 0) {
+        doc.content.push({ type: "paragraph", content: [{ type: "text", text: " " }] });
+    }
+
+    return doc;
+}
+
+// インラインフォーマット解析 (太字とリンクのみ対応)
+function parseInlineFormatting(text) {
+    const contents = [];
+
+    // 簡易的なパース処理: **Bold** と [Link](url) を処理
+    // 正規表現で分割: (\*\*.*?\*\*|\[.*?\]\(.*?\))
+    const parts = text.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/g);
+
+    for (const part of parts) {
+        if (!part) continue;
+
+        if (part.startsWith('**') && part.endsWith('**')) {
+            // Bold
+            contents.push({
+                type: "text",
+                text: part.slice(2, -2),
+                marks: [{ type: "strong" }]
+            });
+        } else if (part.startsWith('[') && part.includes('](') && part.endsWith(')')) {
+            // Link
+            const match = part.match(/\[(.*?)\]\((.*?)\)/);
+            if (match) {
+                contents.push({
+                    type: "text",
+                    text: match[1],
+                    marks: [{ type: "link", attrs: { href: match[2] } }]
+                });
+            } else {
+                contents.push({ type: "text", text: part });
+            }
+        } else {
+            // Normal text
+            contents.push({ type: "text", text: part });
+        }
+    }
+
+    return contents.length > 0 ? contents : [{ type: "text", text: " " }]; // 空文字対策
+}
+
 // ユーザーに通知を表示するためにスクリプトを実行
 function alertUser(tabId, message) {
     chrome.scripting.executeScript({
         target: { tabId: tabId },
-        func: (msg) => alert(msg),
+        func: (msg) => { alert(msg); },
         args: [message]
     });
 }

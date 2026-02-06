@@ -1,0 +1,22 @@
+
+# Mac standard files
+.DS_Store
+
+# Windows standard files
+Thumbs.db
+ehthumbs.db
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# JetBrains
+.idea/
+
+# VS Code
+.vscode/
+
+# Extension artifacts
+*.crx
+*.pem

@@ -8,36 +8,31 @@ document.addEventListener("contextmenu", (event) => {
 // Background scriptからのリクエストを待機
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "extractMessage") {
-        const data = extractMessageInfo(lastClickedElement);
+        // 設定されたPrefixを受け取る (無ければデフォルト)
+        const titlePrefix = request.titlePrefix !== undefined ? request.titlePrefix : "[Discord]";
+        const data = extractMessageInfo(lastClickedElement, titlePrefix);
         sendResponse(data);
     }
 });
 
-function extractMessageInfo(target) {
+function extractMessageInfo(target, titlePrefix) {
     if (!target) return { error: "No element selected" };
 
-    // メッセージコンテナを探す (role="article" または特定クラス)
+    // メッセージコンテナを探す
     const messageElement = target.closest('[role="article"], [class*="message-"]');
     if (!messageElement) return { error: "Could not find message element. Please right-click directly on the message text." };
 
     // --- 1. メッセージ内容 ---
-    // contentクラスを持つ要素、あるいは単純にinnerText
     const contentElement = messageElement.querySelector('[id^="message-content-"], [class*="messageContent-"]');
     const content = contentElement ? contentElement.innerText : messageElement.innerText;
 
     // --- 2. 投稿者 ---
-    // header内のusername
     let author = "Unknown User";
-
-    // パターンA: メッセージ要素内の h3 > span[class*="username"]
     const authorElement = messageElement.querySelector('h3 [class*="username"]');
     if (authorElement) {
         author = authorElement.innerText;
     }
-
-    // パターンB: DOM IDからの逆引き (message-content-ID -> message-username-ID)
     if (author === "Unknown User" && contentElement && contentElement.id) {
-        // id="message-content-123456789" -> "message-username-123456789"
         const msgId = contentElement.id.split('-').pop();
         if (msgId) {
             const usernameHeader = document.getElementById(`message-username-${msgId}`);
@@ -49,67 +44,129 @@ function extractMessageInfo(target) {
     const timeElement = messageElement.querySelector('time');
     const timestamp = timeElement ? timeElement.getAttribute("datetime") : new Date().toISOString();
 
-    // --- 4. サーバー名とチャンネル名 ---
+    // --- 4. サーバー名とチャンネル名 (タイトル優先ロジック) ---
 
-    // 優先: タイトルから取得 (最も信頼性が高い)
-    // フォーマット: "(1) #channel | Server | Discord"
+    let serverName = "";
+    let channelName = "";
+
+    // A. ウィンドウタイトルから取得 (最優先)
     let pageTitle = document.title;
-    // 通知バッジ削除
+    // 通知バッジ "(1) " や "● " を削除
     pageTitle = pageTitle.replace(/^[\(\●].*?[\)\s]\s?/, "").trim();
 
-    let serverName = "Unknown Server";
-    let channelName = "Unknown Channel";
-
-    // Web版Discordのタイトルは通常 "Channel | Server | Discord"
     if (pageTitle.includes(" | ")) {
+        // Web版: Channel | Server | Discord
         const parts = pageTitle.split(" | ");
-
         if (parts.length >= 3) {
-            channelName = parts[0];
-            serverName = parts[1];
+            channelName = parts[0].trim();
+            serverName = parts[1].trim();
         } else if (parts.length === 2) {
-            channelName = parts[0];
+            // Channel | Discord (通常DMなど)
+            channelName = parts[0].trim();
             serverName = "Direct Message / Other";
         }
-    }
-
-    // DOMフォールバック
-    if (serverName === "Unknown Server") {
-        const serverHeader = document.querySelector('nav header h1');
-        if (serverHeader) {
-            serverName = serverHeader.innerText;
+    } else if (pageTitle.includes(" - ")) {
+        // アプリ版などパターン違い: Channel - Server
+        // ただし "Discord - Channel" の場合もあるので注意が必要だが、
+        // 一般的なブラウザ版を想定
+        const parts = pageTitle.split(" - ");
+        if (parts.length >= 2) {
+            // 末尾が "Discord" ならそれは無視
+            if (parts[parts.length - 1].trim() === "Discord") {
+                parts.pop();
+            }
+            if (parts.length >= 2) {
+                channelName = parts[0].trim();
+                serverName = parts[1].trim();
+            } else if (parts.length === 1) {
+                channelName = parts[0].trim();
+            }
         }
     }
 
-    if (channelName === "Unknown Channel" || channelName.includes("Unknown")) {
-        const channelHeader = document.querySelector('h3[class*="title-"]');
-        if (channelHeader) {
-            channelName = channelHeader.innerText;
+    // B. DOMから取得 (タイトルの解析に失敗した場合、または情報が不足している場合のバックアップ)
+    if (!serverName || !channelName || serverName === "Discord" || channelName === "Discord") {
+
+        let domServer = "";
+        let domChannel = "";
+
+        const serverElement = document.querySelector('nav header h1');
+        if (serverElement) domServer = serverElement.innerText.trim();
+
+        const channelElement = document.querySelector('[class*="chatContent-"] [class*="title-"] h3, [data-cy="channel-name"], h3[class*="title-"]');
+        if (channelElement) domChannel = channelElement.innerText.trim();
+
+        // 空欄がある場合のみDOMの情報で埋める
+        if (!serverName || serverName === "Discord") serverName = domServer || "Unknown Server";
+        if (!channelName || channelName === "Discord") channelName = domChannel || "Unknown Channel";
+
+        // サイドバーの選択されているサーバーアイコンから取得 ("Server Name" in aria-label)
+        if (serverName === "Unknown Server") {
+            // Side bar guild icon selectors (attempt to find selected guild item)
+            // wrapper-3kah-n selected-1Drb7Z -> child with aria-label
+            const selectedGiven = document.querySelector('nav[class*="guilds-"] [class*="selected-"] [aria-label], [data-list-item-id^="guildsnav_"][class*="selected"]');
+            if (selectedGiven && selectedGiven.getAttribute("aria-label")) {
+                serverName = selectedGiven.getAttribute("aria-label");
+            }
+        }
+    }
+
+    // C. 最終健全性チェック (Final Sanity Check)
+    // それでもなお "Discord" が入っていたり、逆転している場合の補正
+
+    // "Discord" という名称は除去
+    if (serverName.toLowerCase() === "discord") serverName = "Unknown Server";
+    if (channelName.toLowerCase() === "discord") channelName = "Unknown Channel";
+
+    // サーバー名が "#" で始まっているなら、それはチャンネル名の可能性大
+    if (serverName.startsWith("#")) {
+        // もしチャンネル名が不明なら、サーバー名をチャンネル名に移動
+        if (channelName === "Unknown Channel" || !channelName) {
+            channelName = serverName;
+            serverName = "Unknown Server";
         }
     }
 
     // --- 5. メッセージリンク ---
-    // メッセージIDの取得を試みる (id="chat-messages-...")
-    // URLから取得するのが確実
     const urlParts = window.location.href.split('/');
-    // [..., channels, GuildID, ChannelID]
-    // メッセージIDはDOMから取得する必要がある
     let messageId = null;
-    // id="message-content-123456789" のような形式を探す
     if (contentElement && contentElement.id) {
         messageId = contentElement.id.split('-').pop();
     } else if (messageElement.id) {
-        // message-123456...
         messageId = messageElement.id.split('-').pop();
     }
 
     let messageLink = window.location.href;
     if (messageId && !window.location.href.endsWith(messageId)) {
-        // 現在のURLがチャンネルまでなら、メッセージIDを付与
         messageLink = `${window.location.href}/${messageId}`;
     }
 
+    // デフォルトのタイトルを生成
+    const selection = window.getSelection().toString().trim();
+    let defaultSummary = "";
+
+    // チャンネル名の多重#を防ぐ
+    const displayChannelName = channelName.startsWith('#') ? channelName : `#${channelName}`;
+
+    if (selection) {
+        const sanitizedSelection = selection.replace(/[\r\n]+/g, " ");
+        defaultSummary = `${sanitizedSelection} (${author}) in ${displayChannelName}`;
+    } else {
+        defaultSummary = `Message from ${author} in ${displayChannelName}`;
+    }
+
+    if (titlePrefix) {
+        defaultSummary = `${titlePrefix} ${defaultSummary}`;
+    }
+
+    const summary = prompt("Jiraチケットのタイトルを入力してください:", defaultSummary);
+
+    if (summary === null) {
+        return { error: "User cancelled the ticket creation." };
+    }
+
     const result = {
+        summary: summary,
         content,
         author,
         timestamp,

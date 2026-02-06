@@ -1,45 +1,144 @@
 <!DOCTYPE html>
 <html>
+
 <head>
+  <meta charset="utf-8">
   <style>
-    body { font-family: sans-serif; padding: 20px; width: 400px; }
-    h1 { font-size: 16px; margin-bottom: 20px; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 12px; }
-    input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-    button { background-color: #0052CC; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; width: 100%; }
-    button:hover { background-color: #0065FF; }
-    .status { margin-top: 10px; font-size: 12px; color: green; display: none; text-align: center; }
-    .note { font-size: 11px; color: #666; margin-top: 4px; }
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      width: 400px;
+    }
+
+    h1 {
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .language-select {
+      font-size: 12px;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    input {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    button {
+      background-color: #0052CC;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    button:hover {
+      background-color: #0065FF;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: green;
+      display: none;
+      text-align: center;
+    }
+
+    .note {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    a {
+      color: #0052CC;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
+
 <body>
-  <h1>Jira Connection Settings</h1>
-  
+  <div class="header-row">
+    <h1 id="pageTitle">Jira Connection Settings</h1>
+    <div class="language-select">
+      <label><input type="radio" name="lang" value="en"> EN</label>
+      <label><input type="radio" name="lang" value="ja"> JA</label>
+    </div>
+  </div>
+
   <div class="form-group">
-    <label for="jiraDomain">Jira Domain (e.g. company.atlassian.net)</label>
+    <label for="jiraDomain" id="lblJiraDomain">Jira Domain</label>
     <input type="text" id="jiraDomain" placeholder="your-domain.atlassian.net">
   </div>
 
   <div class="form-group">
-    <label for="email">Email Address</label>
+    <label for="email" id="lblEmail">Email Address</label>
     <input type="text" id="email" placeholder="user@example.com">
   </div>
 
   <div class="form-group">
-    <label for="apiToken">API Token</label>
-    <input type="password" id="apiToken" placeholder="Paste your API Token here">
-    <div class="note">Create one at <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a></div>
+    <label for="apiToken" id="lblApiToken">API Token</label>
+    <input type="password" id="apiToken" placeholder="">
+    <div class="note" id="noteApiToken">Create one at <a
+        href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a></div>
   </div>
 
   <div class="form-group">
-    <label for="projectKey">Project Key</label>
+    <label for="projectKey" id="lblProjectKey">Project Key</label>
     <input type="text" id="projectKey" placeholder="e.g. SUP, DEV">
   </div>
 
   <div class="form-group">
-    <label for="issueType">Issue Type Name</label>
+    <label for="issueType" id="lblIssueType">Issue Type Name</label>
     <input type="text" id="issueType" value="Task">
+  </div>
+
+  <div class="form-group">
+    <label for="parentKey" id="lblParentKey">Parent Key (Optional)</label>
+    <input type="text" id="parentKey" placeholder="e.g. KAN-5">
+    <div class="note" id="noteParentKey">Set Epic Key to link to an Epic, or Parent Key for Sub-tasks.</div>
+  </div>
+
+  <div class="form-group">
+    <label for="titlePrefix" id="lblTitlePrefix">Title Prefix (Optional)</label>
+    <input type="text" id="titlePrefix" placeholder="e.g. [Discord]">
+    <div class="note" id="notePrefix">Added to the beginning of the ticket title.</div>
+  </div>
+
+  <div class="form-group">
+    <label for="descTemplate" id="lblDescTemplate">Description Template (Markdown-ish)</label>
+    <textarea id="descTemplate" rows="10" style="width: 100%; padding: 8px; font-family: monospace;"></textarea>
+    <div class="note" id="noteTemplate">
+      Available: {author}, {server}, {channel}, {time}, {link}, {content}<br>
+      Supports: **Bold**, [Link Title]({link}), - List item
+    </div>
   </div>
 
   <button id="save">Save Settings</button>
@@ -47,4 +146,5 @@
 
   <script src="options.js"></script>
 </body>
+
 </html>
