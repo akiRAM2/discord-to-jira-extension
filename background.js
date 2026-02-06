@@ -13,12 +13,17 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "createJiraTicket") {
 
-        // 設定からPrefixを取得してContent Scriptに渡す
-        chrome.storage.sync.get({ titlePrefix: '[Discord]' }, (items) => {
+        // 設定からPrefixとParentKey(Presets)を取得してContent Scriptに渡す
+        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '' }, (items) => {
             const titlePrefix = items.titlePrefix;
+            const parentKeyPresets = items.parentKey;
 
             // Content scriptにメッセージを送ってデータ抽出を依頼
-            chrome.tabs.sendMessage(tab.id, { action: "extractMessage", titlePrefix: titlePrefix }, (response) => {
+            chrome.tabs.sendMessage(tab.id, {
+                action: "extractMessage",
+                titlePrefix: titlePrefix,
+                parentKeyPresets: parentKeyPresets
+            }, (response) => {
                 if (chrome.runtime.lastError) {
                     console.error(chrome.runtime.lastError.message);
                     alertUser(tab.id, "Please reload the page and try again.");
@@ -26,7 +31,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
                 }
 
                 if (response && response.error) {
-                    alertUser(tab.id, response.error);
+                    // キャンセル等の明示的なエラー以外はアラート
+                    if (response.error !== "User cancelled") {
+                        alertUser(tab.id, response.error);
+                    }
                 } else if (response) {
                     createJiraTicket(response, tab.id);
                 }
@@ -110,8 +118,20 @@ async function createJiraTicket(data, tabId) {
     };
 
     // 親課題(Epic/Parent)が設定されている場合に追加
-    if (config.parentKey) {
-        body.fields.parent = { key: config.parentKey };
+    // ユーザーが選択したキー(data.parentKey)を優先、なければ設定のデフォルトを使う
+    const targetParentKey = data.parentKey || config.parentKey;
+
+    // 改行などが含まれている場合があるので整形 (最初の1行目の有効な文字列を使うなど)
+    // ここでは単純にトリムして空文字チェック
+    if (targetParentKey && targetParentKey.trim().length > 0) {
+        // 設定値が複数行（プリセット）のまま来てしまった場合のフォールバック（最初の1つを使うなど）
+        // ただし通常はdata.parentKeyで単一の値が来ているはず。
+        // config.parentKeyが複数行の場合は、data.parentKeyが指定されていない＝モーダルキャンセル or スキップ？
+        // ここでは単純な単一キーであることを期待してセット
+        const cleanParentKey = targetParentKey.split('\n')[0].trim();
+        if (cleanParentKey) {
+            body.fields.parent = { key: cleanParentKey };
+        }
     }
 
     // 担当者が取得できている場合、設定する
