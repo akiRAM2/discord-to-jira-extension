@@ -11,29 +11,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // 非同期処理を開始するためにPromise chainを使うか、即時return trueする
         (async () => {
             try {
-                // 設定されたPrefixを受け取る (無ければデフォルト)
-                const titlePrefix = request.titlePrefix !== undefined ? request.titlePrefix : "[Discord]";
+                // 設定されたPrefixPresetsを受け取る (無ければデフォルト)
+                // request.titlePrefix は現在、複数行の文字列（Presets）として渡ってくる
+                const titlePrefixPresetsStr = request.titlePrefix !== undefined ? request.titlePrefix : "[Discord]";
                 const parentKeyPresetsStr = request.parentKeyPresets || "";
                 const lang = request.lang || "en";
 
-                const data = extractMessageInfo(lastClickedElement, titlePrefix);
+                // ここではPrefixを付与せず、生の抽出データだけ取得する
+                const data = extractMessageInfo(lastClickedElement);
 
                 if (data.error) {
                     sendResponse(data);
                     return;
                 }
 
-                // ユーザー入力モーダルを表示して Summary と ParentKey を決定
+                // Presetsを配列化
                 const validParentKeys = parentKeyPresetsStr
                     .split('\n')
                     .map(k => k.trim())
                     .filter(k => k.length > 0);
 
-                const userInput = await openTicketModal(data.defaultSummary, validParentKeys, lang);
+                const validPrefixes = titlePrefixPresetsStr
+                    .split('\n')
+                    .map(k => k.trim())
+                    .filter(k => k.length > 0);
+
+                // モーダル表示
+                const userInput = await openTicketModal(data.defaultSummary, validParentKeys, validPrefixes, lang);
 
                 // データを更新
                 data.summary = userInput.summary;
                 data.parentKey = userInput.parentKey;
+                data.selectedPrefix = userInput.selectedPrefix;
 
                 sendResponse(data);
             } catch (err) {
@@ -135,8 +144,6 @@ function extractMessageInfo(target) {
     // Coalesced の場合、時刻は hover しないと出ない or DOM 上は存在するが見えない？
     // 通常は time 要素があるはず
     const timestamp = timeElement ? timeElement.getAttribute("datetime") : new Date().toISOString();
-
-    // --- 4. サーバー名とチャンネル名 (タイトル優先ロジック) ---
 
     // --- 4. サーバー名とチャンネル名 (タイトル優先ロジック) ---
 
@@ -272,10 +279,11 @@ function extractMessageInfo(target) {
 
 // --- Modal UI ---
 
-function openTicketModal(defaultSummary, parentKeys, lang = 'en') {
+function openTicketModal(defaultSummary, parentKeys, prefixPresets, lang = 'en') {
     const texts = {
         en: {
             header: "Create Jira Ticket",
+            prefixLabel: "Prefix (Optional)",
             titleLabel: "Ticket Title",
             parentLabel: "Parent Issue / Epic (Optional)",
             none: "None",
@@ -285,6 +293,7 @@ function openTicketModal(defaultSummary, parentKeys, lang = 'en') {
         },
         ja: {
             header: "Jiraチケットを作成",
+            prefixLabel: "接頭辞を選ぶ (任意)",
             titleLabel: "チケットタイトル",
             parentLabel: "親課題 / エピック (任意)",
             none: "なし",
@@ -327,6 +336,8 @@ function openTicketModal(defaultSummary, parentKeys, lang = 'en') {
             borderRadius: '8px',
             width: '400px',
             maxWidth: '90%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             display: 'flex',
             flexDirection: 'column',
@@ -340,6 +351,63 @@ function openTicketModal(defaultSummary, parentKeys, lang = 'en') {
         header.style.margin = '0 0 5px 0';
         header.style.fontSize = '18px';
         modal.appendChild(header);
+
+        // --- Prefix Selection ---
+        if (prefixPresets && prefixPresets.length > 0) {
+            const prefixLabel = document.createElement('label');
+            prefixLabel.textContent = t.prefixLabel;
+            prefixLabel.style.fontWeight = 'bold';
+            prefixLabel.style.fontSize = '12px';
+            modal.appendChild(prefixLabel);
+
+            const prefixContainer = document.createElement('div');
+            Object.assign(prefixContainer.style, {
+                display: 'flex',
+                gap: '10px',
+                flexWrap: 'wrap',
+                marginBottom: '5px'
+            });
+
+            // "None"
+            const pNoneLabel = document.createElement('label');
+            pNoneLabel.style.display = 'flex';
+            pNoneLabel.style.alignItems = 'center';
+            pNoneLabel.style.gap = '5px';
+            pNoneLabel.style.cursor = 'pointer';
+
+            const pNoneRadio = document.createElement('input');
+            pNoneRadio.type = 'radio';
+            pNoneRadio.name = 'jiraTitlePrefix';
+            pNoneRadio.value = '';
+            // Default to None? or First? 
+            // Previous logic was "always apply". Now "selectable".
+            // Let's default to the first one for convenience, as users likely want a prefix if they set them.
+            pNoneRadio.checked = false;
+
+            pNoneLabel.appendChild(pNoneRadio);
+            pNoneLabel.appendChild(document.createTextNode(t.none));
+            prefixContainer.appendChild(pNoneLabel);
+
+            prefixPresets.forEach((p, idx) => {
+                const pLabel = document.createElement('label');
+                pLabel.style.display = 'flex';
+                pLabel.style.alignItems = 'center';
+                pLabel.style.gap = '5px';
+                pLabel.style.cursor = 'pointer';
+
+                const pRadio = document.createElement('input');
+                pRadio.type = 'radio';
+                pRadio.name = 'jiraTitlePrefix';
+                pRadio.value = p;
+
+                if (idx === 0) pRadio.checked = true; // Default to first
+
+                pLabel.appendChild(pRadio);
+                pLabel.appendChild(document.createTextNode(p));
+                prefixContainer.appendChild(pLabel);
+            });
+            modal.appendChild(prefixContainer);
+        }
 
         // Title Input
         const titleLabel = document.createElement('label');
@@ -410,11 +478,6 @@ function openTicketModal(defaultSummary, parentKeys, lang = 'en') {
                 radio.name = 'jiraParentKey';
                 radio.value = key;
 
-                // もし1つしかなければデフォルト選択にする？ 
-                // いや、Noneをデフォルトでいいか、あるいは一番上を選択？
-                // ユーザー要望的に「選べるようにしたい」なのでNoneデフォルトが無難だが、
-                // 必須の場合もあるかもしれない。一旦Noneデフォルト。
-
                 label.appendChild(radio);
                 label.appendChild(document.createTextNode(key));
                 radioContainer.appendChild(label);
@@ -470,10 +533,15 @@ function openTicketModal(defaultSummary, parentKeys, lang = 'en') {
             const checkedRadio = modal.querySelector('input[name="jiraParentKey"]:checked');
             const finalParent = checkedRadio ? checkedRadio.value : '';
 
+            // Get selected prefix
+            const checkedPrefix = modal.querySelector('input[name="jiraTitlePrefix"]:checked');
+            const finalPrefix = checkedPrefix ? checkedPrefix.value : '';
+
             overlay.remove();
             resolve({
                 summary: finalSummary,
-                parentKey: finalParent
+                parentKey: finalParent,
+                selectedPrefix: finalPrefix
             });
         };
 
