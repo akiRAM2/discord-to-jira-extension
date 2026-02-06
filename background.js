@@ -14,9 +14,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "createJiraTicket") {
 
         // 設定からPrefixとParentKey(Presets)と詳細設定を取得してContent Scriptに渡す
-        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '', lang: 'en' }, (items) => {
+        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '', epicPrefixMapping: '', lang: 'en' }, (items) => {
             const titlePrefix = items.titlePrefix;
             const parentKeyPresets = items.parentKey;
+            const epicPrefixMapping = items.epicPrefixMapping;
             const lang = items.lang;
 
             // Content scriptにメッセージを送ってデータ抽出を依頼
@@ -24,6 +25,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
                 action: "extractMessage",
                 titlePrefix: titlePrefix,
                 parentKeyPresets: parentKeyPresets,
+                epicPrefixMapping: epicPrefixMapping,
                 lang: lang
             }, (response) => {
                 if (chrome.runtime.lastError) {
@@ -67,6 +69,7 @@ async function createJiraTicket(data, tabId) {
         issueType: 'Task',
         parentKey: '',
         accountId: '',
+        dueDateOffset: 2,
         descTemplate: defaultTemplate
     });
 
@@ -152,9 +155,10 @@ async function createJiraTicket(data, tabId) {
         const startDate = new Date(data.timestamp);
         body.fields.customfield_10015 = startDate.toISOString().split('T')[0]; // Start Date (customfield_10015 は一般的な Start Date のフィールド ID)
 
-        // Due Date: Start Date の +2 日
+        // Due Date: Start Date の +N 日 (設定値)
+        const offset = config.dueDateOffset !== undefined ? config.dueDateOffset : 2;
         const dueDate = new Date(startDate);
-        dueDate.setDate(dueDate.getDate() + 2);
+        dueDate.setDate(dueDate.getDate() + offset);
         body.fields.duedate = dueDate.toISOString().split('T')[0];
     }
 

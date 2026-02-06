@@ -15,6 +15,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 // request.titlePrefix は現在、複数行の文字列（Presets）として渡ってくる
                 const titlePrefixPresetsStr = request.titlePrefix !== undefined ? request.titlePrefix : "[Discord]";
                 const parentKeyPresetsStr = request.parentKeyPresets || "";
+                const epicPrefixMappingStr = request.epicPrefixMapping || "";
                 const lang = request.lang || "en";
 
                 // ここではPrefixを付与せず、生の抽出データだけ取得する
@@ -37,7 +38,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     .filter(k => k.length > 0);
 
                 // モーダル表示
-                const userInput = await openTicketModal(data.defaultSummary, validParentKeys, validPrefixes, lang);
+                const userInput = await openTicketModal(data.defaultSummary, validParentKeys, validPrefixes, epicPrefixMappingStr, lang);
 
                 // データを更新
                 data.summary = userInput.summary;
@@ -279,7 +280,21 @@ function extractMessageInfo(target) {
 
 // --- Modal UI ---
 
-function openTicketModal(defaultSummary, parentKeys, prefixPresets, lang = 'en') {
+function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMappingStr = '', lang = 'en') {
+    // Prefix → Epic マッピングをパース
+    const prefixEpicMap = {};
+    if (epicPrefixMappingStr) {
+        epicPrefixMappingStr.split('\n').forEach(line => {
+            const trimmed = line.trim();
+            if (trimmed && trimmed.includes(':')) {
+                const [prefix, epic] = trimmed.split(':').map(s => s.trim());
+                if (prefix && epic) {
+                    prefixEpicMap[prefix] = epic;
+                }
+            }
+        });
+    }
+
     const texts = {
         en: {
             header: "Create Jira Ticket",
@@ -402,8 +417,35 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, lang = 'en')
 
                 if (idx === 0) pRadio.checked = true; // Default to first
 
+                // Prefix 選択時に対応する Epic を自動選択
+                pRadio.addEventListener('change', () => {
+                    if (pRadio.checked && prefixEpicMap[p]) {
+                        const targetEpic = prefixEpicMap[p];
+                        const epicRadios = modal.querySelectorAll('input[name="jiraParentKey"]');
+                        epicRadios.forEach(er => {
+                            if (er.value === targetEpic) {
+                                er.checked = true;
+                                // 視覚的なフィードバック (一瞬光らせるなど)
+                                er.parentElement.style.backgroundColor = '#e6f7ff';
+                                setTimeout(() => { er.parentElement.style.backgroundColor = ''; }, 500);
+                            }
+                        });
+                    }
+                });
+
                 pLabel.appendChild(pRadio);
                 pLabel.appendChild(document.createTextNode(p));
+
+                // 紐付けがある場合、ヒントを表示
+                if (prefixEpicMap[p]) {
+                    const hint = document.createElement('span');
+                    hint.textContent = ` (→ ${prefixEpicMap[p]})`;
+                    hint.style.fontSize = '10px';
+                    hint.style.color = '#0052CC';
+                    hint.style.marginLeft = '2px';
+                    pLabel.appendChild(hint);
+                }
+
                 prefixContainer.appendChild(pLabel);
             });
             modal.appendChild(prefixContainer);
@@ -472,6 +514,9 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, lang = 'en')
                 label.style.alignItems = 'center';
                 label.style.gap = '5px';
                 label.style.cursor = 'pointer';
+                label.style.padding = '2px 4px';
+                label.style.borderRadius = '4px';
+                label.style.transition = 'background-color 0.3s';
 
                 const radio = document.createElement('input');
                 radio.type = 'radio';
