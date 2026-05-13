@@ -10,7 +10,7 @@ const defaultTemplate = `**Extracted from Discord Message**
 
 {content}`;
 
-const defaultTitleTemplate = `{summary}`;
+const defaultTitleTemplate = `{message} ({author}) in #{channel} ,{server}`;
 
 const translations = {
     en: {
@@ -44,7 +44,7 @@ const translations = {
         noteApiToken: '<a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a>',
         noteEpicMapping: "One mapping per line. Format: [Prefix]:PARENT-123. Prefixes and parent keys are generated from this list.",
         noteDueDateOffset: "Days to add to Start Date for Due Date. (Default: 2)",
-        noteTitleTemplate: "Available: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}",
+        noteTitleTemplate: "Default: {message} ({author}) in #{channel} ,{server}. Available: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}",
         noteTemplate: "Available: {author}, {server}, {channel}, {time}, {link}, {content}<br>Supports: **Bold**, [Link]({link}), - List item",
         addMappingRow: "+ Add row",
         removeMappingRow: "Remove row",
@@ -84,7 +84,7 @@ const translations = {
         noteApiToken: '<a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a> で作成できます',
         noteEpicMapping: "1行に1つ入力します。形式: [接頭辞]:親課題キー。ここから作成時の接頭辞と親課題を自動生成します。",
         noteDueDateOffset: "開始日の何日後を期限にするか設定します。(デフォルト: 2)",
-        noteTitleTemplate: "使用可能: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}",
+        noteTitleTemplate: "デフォルト: {message} ({author}) in #{channel} ,{server}。使用可能: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}",
         noteTemplate: "使用可能: {author}, {server}, {channel}, {time}, {link}, {content}<br>対応: **太字**, [リンク名]({link}), - リスト",
         addMappingRow: "+ 行を追加",
         removeMappingRow: "行を削除",
@@ -368,7 +368,12 @@ function restoreOptions() {
             document.getElementById('epicPrefixMapping').value = mappingText;
             renderMappingRows(mappingText);
             document.getElementById('dueDateOffset').value = items.dueDateOffset !== undefined ? items.dueDateOffset : 2;
-            document.getElementById('titleTemplate').value = items.titleTemplate || defaultTitleTemplate;
+            const titleTemplate = !items.titleTemplate ||
+                items.titleTemplate.trim() === '{summary}' ||
+                items.titleTemplate.trim() === 'Message from {author} in {channel}'
+                ? defaultTitleTemplate
+                : items.titleTemplate;
+            document.getElementById('titleTemplate').value = titleTemplate;
             document.getElementById('descTemplate').value = items.descTemplate;
 
             // 言語設定の反映

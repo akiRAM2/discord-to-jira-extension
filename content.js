@@ -12,7 +12,7 @@ const defaultPreviewTemplate = `**Extracted from Discord Message**
 
 {content}`;
 
-const defaultTitleTemplate = `{summary}`;
+const defaultTitleTemplate = `{message} ({author}) in #{channel} ,{server}`;
 
 function cleanDiscordName(value) {
     if (!value) return "";
@@ -407,7 +407,7 @@ function extractMessageInfo(target, titleTemplate = defaultTitleTemplate) {
         channelName,
         messageLink
     };
-    const templatedSummary = buildPreviewText(titleTemplate, result).trim();
+    const templatedSummary = buildTitleText(titleTemplate, result).trim();
     result.defaultSummary = templatedSummary || fallbackSummary;
 
     console.log("[Discord-Jira] Extracted Data:", result);
@@ -672,6 +672,20 @@ function buildPreviewText(template, data) {
         .replace(/{author}/g, data.author || '')
         .replace(/{server}/g, data.serverName || '')
         .replace(/{channel}/g, data.channelName || '')
+        .replace(/{time}/g, data.timestamp ? new Date(data.timestamp).toLocaleString() : '')
+        .replace(/{link}/g, data.messageLink || '')
+        .replace(/{content}/g, data.content || '');
+}
+
+function buildTitleText(template, data) {
+    const channel = (data.channelName || '').replace(/^#\s*/, '');
+    return template
+        .replace(/{summary}/g, data.summary || '')
+        .replace(/{selection}/g, data.selection || '')
+        .replace(/{message}/g, data.message || data.selection || data.content || '')
+        .replace(/{author}/g, data.author || '')
+        .replace(/{server}/g, data.serverName || '')
+        .replace(/{channel}/g, channel)
         .replace(/{time}/g, data.timestamp ? new Date(data.timestamp).toLocaleString() : '')
         .replace(/{link}/g, data.messageLink || '')
         .replace(/{content}/g, data.content || '');

@@ -571,8 +571,8 @@
       <div class="section-body">
         <div class="form-group">
           <label for="titleTemplate"><span id="lblTitleTemplate">Title Template</span><span class="badge optional" data-badge="optional">Optional</span></label>
-          <input type="text" id="titleTemplate" value="{summary}" autocomplete="off">
-          <div class="note" id="noteTitleTemplate">Available: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}</div>
+          <input type="text" id="titleTemplate" value="{message} ({author}) in #{channel} ,{server}" autocomplete="off">
+          <div class="note" id="noteTitleTemplate">Default: {message} ({author}) in #{channel} ,{server}. Available: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}</div>
         </div>
 
         <div class="form-group">

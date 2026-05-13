@@ -63,7 +63,7 @@ const defaultTemplate = `**Extracted from Discord Message**
 
 {content}`;
 
-const defaultTitleTemplate = `{summary}`;
+const defaultTitleTemplate = `{message} ({author}) in #{channel} ,{server}`;
 
 async function createJiraTicket(data, tabId) {
     // 設定を読み込む
@@ -117,7 +117,7 @@ async function createJiraTicket(data, tabId) {
     // Prefix処理: UIで選択されたものがあればそれを使う。
     // options.titlePrefix (presets) はここでは直接参照せず、data経由で渡された選択結果を使う。
     const prefix = data.selectedPrefix ? (data.selectedPrefix + ' ') : '';
-    const rawSummary = data.summary || `Message from ${data.author} in #${data.channelName}`;
+    const rawSummary = data.summary || `Message from ${data.author} in ${data.channelName}`;
     const summary = `${prefix}${rawSummary}`;
 
     // モーダルで編集された本文があればそれを優先して ADF (Description) を生成
