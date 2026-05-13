@@ -10,6 +10,8 @@ const defaultTemplate = `**Extracted from Discord Message**
 
 {content}`;
 
+const defaultTitleTemplate = `{summary}`;
+
 const translations = {
     en: {
         pageTitle: "Jira Connection Settings",
@@ -20,8 +22,8 @@ const translations = {
         sectionTicketNote: "These values decide where the Discord message becomes a Jira issue.",
         sectionRouting: "Creation Dialog Choices",
         sectionRoutingNote: "Add one item per line. These choices appear when you create a ticket.",
-        sectionTemplate: "Description Template",
-        sectionTemplateNote: "Customize the Jira description generated from the selected Discord message.",
+        sectionTemplate: "Ticket Templates",
+        sectionTemplateNote: "Customize the Jira title and description generated from the selected Discord message.",
         guideTitle: "Setup Flow",
         guideText: "Complete the required Jira connection fields first. Optional presets make daily ticket creation faster.",
         guideStepConnection: "Connect Jira",
@@ -37,10 +39,12 @@ const translations = {
         lblIssueType: "Issue Type Name",
         lblEpicPrefixMapping: "Prefix → Epic Mapping (Optional)",
         lblDueDateOffset: "Due Date Offset (Days)",
+        lblTitleTemplate: "Title Template",
         lblDescTemplate: "Description Template (Markdown-ish)",
         noteApiToken: '<a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a>',
         noteEpicMapping: "One mapping per line. Format: [Prefix]:PARENT-123. Prefixes and parent keys are generated from this list.",
         noteDueDateOffset: "Days to add to Start Date for Due Date. (Default: 2)",
+        noteTitleTemplate: "Available: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}",
         noteTemplate: "Available: {author}, {server}, {channel}, {time}, {link}, {content}<br>Supports: **Bold**, [Link]({link}), - List item",
         addMappingRow: "+ Add row",
         removeMappingRow: "Remove row",
@@ -58,8 +62,8 @@ const translations = {
         sectionTicketNote: "DiscordメッセージをどのJira課題として作るかを決めます。",
         sectionRouting: "作成時の選択肢",
         sectionRoutingNote: "1行に1つずつ入力します。チケット作成時のダイアログに表示されます。",
-        sectionTemplate: "説明文テンプレート",
-        sectionTemplateNote: "選択したDiscordメッセージから生成するJira本文を調整できます。",
+        sectionTemplate: "チケットテンプレート",
+        sectionTemplateNote: "選択したDiscordメッセージから生成するJiraタイトルと本文を調整できます。",
         guideTitle: "設定の流れ",
         guideText: "まず必須のJira接続情報を入れます。任意のプリセットを使うと、日々のチケット作成がかなり楽になります。",
         guideStepConnection: "Jiraに接続",
@@ -75,10 +79,12 @@ const translations = {
         lblIssueType: "課題タイプ名 (例: Task, タスク)",
         lblEpicPrefixMapping: "接頭辞 → エピック マッピング (任意)",
         lblDueDateOffset: "期限までの日数 (開始日基準)",
+        lblTitleTemplate: "タイトルテンプレート",
         lblDescTemplate: "説明文テンプレート (Markdown風)",
         noteApiToken: '<a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a> で作成できます',
         noteEpicMapping: "1行に1つ入力します。形式: [接頭辞]:親課題キー。ここから作成時の接頭辞と親課題を自動生成します。",
         noteDueDateOffset: "開始日の何日後を期限にするか設定します。(デフォルト: 2)",
+        noteTitleTemplate: "使用可能: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}",
         noteTemplate: "使用可能: {author}, {server}, {channel}, {time}, {link}, {content}<br>対応: **太字**, [リンク名]({link}), - リスト",
         addMappingRow: "+ 行を追加",
         removeMappingRow: "行を削除",
@@ -286,10 +292,12 @@ function updateLanguage(lang) {
     document.getElementById('lblIssueType').textContent = texts.lblIssueType;
     document.getElementById('lblEpicPrefixMapping').textContent = texts.lblEpicPrefixMapping;
     document.getElementById('lblDueDateOffset').textContent = texts.lblDueDateOffset;
+    document.getElementById('lblTitleTemplate').textContent = texts.lblTitleTemplate;
     document.getElementById('lblDescTemplate').textContent = texts.lblDescTemplate;
     document.getElementById('noteApiToken').innerHTML = texts.noteApiToken;
     document.getElementById('noteEpicMapping').textContent = texts.noteEpicMapping;
     document.getElementById('noteDueDateOffset').textContent = texts.noteDueDateOffset;
+    document.getElementById('noteTitleTemplate').textContent = texts.noteTitleTemplate;
     document.getElementById('noteTemplate').innerHTML = texts.noteTemplate;
     document.getElementById('addMappingRow').textContent = texts.addMappingRow;
     document.getElementById('save').textContent = texts.save;
@@ -316,12 +324,13 @@ function saveOptions() {
     const epicPrefixMapping = normalizeMappingText(document.getElementById('epicPrefixMapping').value);
     const { parentKey, titlePrefix } = derivePresetsFromMapping(epicPrefixMapping);
     const dueDateOffset = parseInt(document.getElementById('dueDateOffset').value, 10) || 0;
+    const titleTemplate = document.getElementById('titleTemplate').value;
     const descTemplate = document.getElementById('descTemplate').value;
     const lang = document.querySelector('input[name="lang"]:checked').value;
 
     // 設定変更時は Account ID のキャッシュをクリアする (再取得させるため)
     optionStorage.set(
-        { jiraDomain, email, apiToken, projectKey, issueType, parentKey, titlePrefix, epicPrefixMapping, dueDateOffset, descTemplate, lang, accountId: '' },
+        { jiraDomain, email, apiToken, projectKey, issueType, parentKey, titlePrefix, epicPrefixMapping, dueDateOffset, titleTemplate, descTemplate, lang, accountId: '' },
         () => {
             const status = document.getElementById('status');
             status.textContent = translations[lang].statusSaved;
@@ -345,6 +354,7 @@ function restoreOptions() {
             titlePrefix: '[Discord]',
             epicPrefixMapping: '',
             dueDateOffset: 2,
+            titleTemplate: defaultTitleTemplate,
             descTemplate: defaultTemplate,
             lang: 'ja' // デフォルト言語
         },
@@ -358,6 +368,7 @@ function restoreOptions() {
             document.getElementById('epicPrefixMapping').value = mappingText;
             renderMappingRows(mappingText);
             document.getElementById('dueDateOffset').value = items.dueDateOffset !== undefined ? items.dueDateOffset : 2;
+            document.getElementById('titleTemplate').value = items.titleTemplate || defaultTitleTemplate;
             document.getElementById('descTemplate').value = items.descTemplate;
 
             // 言語設定の反映

@@ -14,10 +14,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "createJiraTicket") {
 
         // 設定からPrefixとParentKey(Presets)と詳細設定を取得してContent Scriptに渡す
-        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '', epicPrefixMapping: '', descTemplate: defaultTemplate, lang: 'ja' }, (items) => {
+        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '', epicPrefixMapping: '', titleTemplate: defaultTitleTemplate, descTemplate: defaultTemplate, lang: 'ja' }, (items) => {
             const titlePrefix = items.titlePrefix;
             const parentKeyPresets = items.parentKey;
             const epicPrefixMapping = items.epicPrefixMapping;
+            const titleTemplate = items.titleTemplate;
             const descTemplate = items.descTemplate;
             const lang = items.lang;
 
@@ -27,6 +28,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
                 titlePrefix: titlePrefix,
                 parentKeyPresets: parentKeyPresets,
                 epicPrefixMapping: epicPrefixMapping,
+                titleTemplate: titleTemplate,
                 descTemplate: descTemplate,
                 lang: lang
             }, (response) => {
@@ -60,6 +62,8 @@ const defaultTemplate = `**Extracted from Discord Message**
 **Message Content**
 
 {content}`;
+
+const defaultTitleTemplate = `{summary}`;
 
 async function createJiraTicket(data, tabId) {
     // 設定を読み込む
@@ -116,7 +120,7 @@ async function createJiraTicket(data, tabId) {
     const rawSummary = data.summary || `Message from ${data.author} in #${data.channelName}`;
     const summary = `${prefix}${rawSummary}`;
 
-    // テンプレートを使用して ADF (Description) を生成
+    // モーダルで編集された本文があればそれを優先して ADF (Description) を生成
     const description = parseTemplateToADF(config.descTemplate, data);
 
     const body = {
@@ -220,14 +224,17 @@ async function createJiraTicket(data, tabId) {
 
 // シンプルなMarkdown風テンプレートパーサー
 function parseTemplateToADF(template, data) {
-    // プレースホルダーの置換
-    let text = template
-        .replace(/{author}/g, data.author)
-        .replace(/{server}/g, data.serverName)
-        .replace(/{channel}/g, data.channelName)
-        .replace(/{time}/g, new Date(data.timestamp).toLocaleString())
-        .replace(/{link}/g, data.messageLink)
-        .replace(/{content}/g, data.content);
+    // モーダルで本文が編集された場合は、テンプレート展開後の本文として扱う
+    let text = data.descriptionText;
+    if (text === undefined) {
+        text = template
+            .replace(/{author}/g, data.author)
+            .replace(/{server}/g, data.serverName)
+            .replace(/{channel}/g, data.channelName)
+            .replace(/{time}/g, new Date(data.timestamp).toLocaleString())
+            .replace(/{link}/g, data.messageLink)
+            .replace(/{content}/g, data.content);
+    }
 
     const doc = {
         type: "doc",

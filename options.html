@@ -563,12 +563,18 @@
     <section class="section">
       <div class="section-header">
         <div>
-          <h2 id="sectionTemplate">Description Template</h2>
-          <p class="section-note" id="sectionTemplateNote">Customize the Jira description generated from the selected Discord message.</p>
+          <h2 id="sectionTemplate">Ticket Templates</h2>
+          <p class="section-note" id="sectionTemplateNote">Customize the Jira title and description generated from the selected Discord message.</p>
         </div>
       </div>
 
       <div class="section-body">
+        <div class="form-group">
+          <label for="titleTemplate"><span id="lblTitleTemplate">Title Template</span><span class="badge optional" data-badge="optional">Optional</span></label>
+          <input type="text" id="titleTemplate" value="{summary}" autocomplete="off">
+          <div class="note" id="noteTitleTemplate">Available: {summary}, {author}, {server}, {channel}, {time}, {link}, {content}, {selection}, {message}</div>
+        </div>
+
         <div class="form-group">
           <label for="descTemplate"><span id="lblDescTemplate">Description Template (Markdown-ish)</span><span class="badge optional" data-badge="optional">Optional</span></label>
           <textarea id="descTemplate" rows="10" style="font-family: Consolas, monospace;"></textarea>

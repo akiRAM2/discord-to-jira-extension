@@ -12,15 +12,21 @@ const defaultPreviewTemplate = `**Extracted from Discord Message**
 
 {content}`;
 
+const defaultTitleTemplate = `{summary}`;
+
 function cleanDiscordName(value) {
     if (!value) return "";
     return value
+        .split('\n')[0]
         .replace(/\s+/g, " ")
-        .replace(/^#\s*/, "")
+        .replace(/^[\u2022\u25cf]\s*/, "")
         .replace(/^Text channel\s+/i, "")
         .replace(/^Voice channel\s+/i, "")
         .replace(/^テキストチャンネル\s*/, "")
         .replace(/^ボイスチャンネル\s*/, "")
+        .replace(/\s*\((text|voice)\s+channel\)\s*$/i, "")
+        .replace(/\s*（(テキスト|ボイス)チャンネル）\s*$/, "")
+        .replace(/\s*,\s*\d+\s+online\s*$/i, "")
         .replace(/\s+\(\d+\)$/, "")
         .trim();
 }
@@ -47,8 +53,105 @@ function firstReadableFromSelectors(selectors) {
     return "";
 }
 
+function getDiscordRouteIds() {
+    const match = window.location.pathname.match(/\/channels\/([^/]+)\/([^/]+)/);
+    if (!match) return { guildId: "", channelId: "" };
+    return {
+        guildId: decodeURIComponent(match[1]),
+        channelId: decodeURIComponent(match[2])
+    };
+}
+
+function getReadableFromLinks(predicate) {
+    const links = document.querySelectorAll('a[href]');
+    for (const link of links) {
+        const href = link.getAttribute('href') || "";
+        if (!predicate(href, link)) continue;
+        const text = getReadableText(link);
+        if (text) return text;
+    }
+    return "";
+}
+
+function getChannelNameFromRoute() {
+    const { guildId, channelId } = getDiscordRouteIds();
+    if (!guildId || !channelId || channelId === "@me") return "";
+
+    const byListItem = firstReadableFromSelectors([
+        `[data-list-item-id*="${channelId}"] a[aria-label]`,
+        `[data-list-item-id*="${channelId}"] [aria-label]`,
+        `[data-list-item-id*="${channelId}"]`
+    ]);
+    if (byListItem) return byListItem;
+
+    return getReadableFromLinks(href => (
+        href.includes(`/channels/${guildId}/${channelId}`) ||
+        href.endsWith(`/channels/${guildId}/${channelId}`)
+    ));
+}
+
+function getServerNameFromRoute() {
+    const { guildId } = getDiscordRouteIds();
+    if (!guildId || guildId === "@me") return "";
+
+    const byListItem = firstReadableFromSelectors([
+        `nav [data-list-item-id*="${guildId}"][aria-label]`,
+        `nav [data-list-item-id*="${guildId}"] [aria-label]`,
+        `nav a[href="/channels/${guildId}"][aria-label]`,
+        `nav a[href^="/channels/${guildId}/"][aria-label]`
+    ]);
+    if (byListItem) return byListItem;
+
+    return getReadableFromLinks((href, link) => {
+        const inGuildNav = !!link.closest('nav');
+        return inGuildNav && (
+            href === `/channels/${guildId}` ||
+            href.startsWith(`/channels/${guildId}/`)
+        );
+    });
+}
+
+function getNamesFromPageTitle() {
+    let pageTitle = document.title || "";
+    pageTitle = pageTitle
+        .replace(/^\([^)]*\)\s*/, "")
+        .replace(/^[\u2022\u25cf]\s*/, "")
+        .replace(/\s+-\s+Discord$/, " | Discord")
+        .trim();
+    if (!pageTitle) return { channelName: "", serverName: "" };
+
+    const separators = pageTitle.includes(" | ") ? " | " : (pageTitle.includes(" - ") ? " - " : "");
+    if (!separators) return { channelName: "", serverName: "" };
+
+    const parts = pageTitle
+        .split(separators)
+        .map(part => cleanDiscordName(part))
+        .filter(Boolean);
+
+    if (parts.length >= 3 && parts[0].toLowerCase() === "discord") {
+        return { channelName: parts[1], serverName: parts[2] };
+    }
+    if (parts.length >= 3 && parts[parts.length - 1].toLowerCase() === "discord") {
+        return { channelName: parts[0], serverName: parts[1] };
+    }
+    const nonDiscordParts = parts.filter(part => part.toLowerCase() !== "discord");
+    if (nonDiscordParts.length >= 2) {
+        return { channelName: nonDiscordParts[0], serverName: nonDiscordParts[1] };
+    }
+    if (nonDiscordParts.length === 1) {
+        return { channelName: nonDiscordParts[0], serverName: "" };
+    }
+    return { channelName: "", serverName: "" };
+}
+
 function getChannelNameFromDom() {
+    const fromRoute = getChannelNameFromRoute();
+    if (fromRoute) return fromRoute;
+
     const fromHeader = firstReadableFromSelectors([
+        '[aria-label="Channel header"] h1',
+        '[aria-label="チャンネルヘッダー"] h1',
+        '[aria-label="Channel header"] [class*="title"]',
         '[data-cy="channel-name"]',
         'section[aria-label*="Channel"] h1',
         'section[aria-label*="チャンネル"] h1',
@@ -68,7 +171,13 @@ function getChannelNameFromDom() {
 }
 
 function getServerNameFromDom() {
+    const fromRoute = getServerNameFromRoute();
+    if (fromRoute) return fromRoute;
+
     return firstReadableFromSelectors([
+        '[aria-label="Servers"] [class*="selected"] [aria-label]',
+        '[aria-label="サーバー"] [class*="selected"] [aria-label]',
+        'nav [aria-current="page"][aria-label]',
         'nav [data-list-item-id^="guildsnav___"][aria-label]',
         'nav [data-list-item-id^="guildsnav___"] [aria-label]',
         'nav [class*="selected"] a[aria-label]',
@@ -93,10 +202,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const parentKeyPresetsStr = request.parentKeyPresets || "";
                 const epicPrefixMappingStr = request.epicPrefixMapping || "";
                 const descTemplate = request.descTemplate || defaultPreviewTemplate;
+                const titleTemplate = request.titleTemplate || defaultTitleTemplate;
                 const lang = request.lang || "ja";
 
                 // ここではPrefixを付与せず、生の抽出データだけ取得する
-                const data = extractMessageInfo(lastClickedElement);
+                const data = extractMessageInfo(lastClickedElement, titleTemplate);
 
                 if (data.error) {
                     sendResponse(data);
@@ -121,6 +231,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 data.summary = userInput.summary;
                 data.parentKey = userInput.parentKey;
                 data.selectedPrefix = userInput.selectedPrefix;
+                data.descriptionText = userInput.descriptionText;
 
                 sendResponse(data);
             } catch (err) {
@@ -138,7 +249,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-function extractMessageInfo(target) {
+function extractMessageInfo(target, titleTemplate = defaultTitleTemplate) {
     if (!target) return { error: "No element selected" };
 
     // message-content (テキスト本文付近) を直接クリックしたか確認
@@ -223,49 +334,12 @@ function extractMessageInfo(target) {
     // 通常は time 要素があるはず
     const timestamp = timeElement ? timeElement.getAttribute("datetime") : new Date().toISOString();
 
-    // --- 4. サーバー名とチャンネル名 (タイトル優先ロジック) ---
+    // --- 4. サーバー名とチャンネル名 ---
+    const titleNames = getNamesFromPageTitle();
+    let serverName = titleNames.serverName;
+    let channelName = titleNames.channelName;
 
-    let serverName = "";
-    let channelName = "";
-
-    // A. ウィンドウタイトルから取得 (最優先)
-    let pageTitle = document.title;
-    // 通知バッジ "(1) " や "● " を削除
-    pageTitle = pageTitle.replace(/^[\(\●].*?[\)\s]\s?/, "").trim();
-
-    // Debug: タイトル確認
-    // console.log("Current Page Title:", pageTitle);
-
-    if (pageTitle.includes(" | ")) {
-        // Web版: Channel | Server | Discord
-        // 例: "general | MyServer | Discord"
-        const parts = pageTitle.split(" | ");
-        if (parts.length >= 3) {
-            channelName = cleanDiscordName(parts[0]);
-            serverName = cleanDiscordName(parts[1]);
-        } else if (parts.length === 2) {
-            // Channel | Discord (通常DMなど)
-            channelName = cleanDiscordName(parts[0]);
-            serverName = ""; // DM等はサーバー名なし
-        }
-    } else if (pageTitle.includes(" - ")) {
-        // 例: "general - MyServer"
-        const parts = pageTitle.split(" - ");
-        // 末尾が "Discord" なら削除
-        if (parts[parts.length - 1].trim() === "Discord") {
-            parts.pop();
-        }
-
-        if (parts.length >= 2) {
-            channelName = cleanDiscordName(parts[0]);
-            serverName = cleanDiscordName(parts[1]);
-        } else if (parts.length === 1) {
-            channelName = cleanDiscordName(parts[0]);
-            serverName = "";
-        }
-    }
-
-    // B. DOMから取得 (バックアップ)
+    // DOM/URLから取得 (バックアップ)
     if (!channelName) channelName = getChannelNameFromDom();
     if (!serverName) serverName = getServerNameFromDom();
 
@@ -307,29 +381,34 @@ function extractMessageInfo(target) {
 
     // デフォルトのタイトルを生成
     const selection = window.getSelection().toString().trim();
-    let defaultSummary = "";
+    const sanitizedSelection = selection.replace(/[\r\n]+/g, " ");
 
     // チャンネル名の多重#を防ぐ
-    const displayChannelName = channelName.startsWith('#') ? channelName : `#${channelName}`;
+    const displayChannelName = channelName ? (channelName.startsWith('#') ? channelName : `#${channelName}`) : "";
 
+    let fallbackSummary = "";
     if (selection) {
-        const sanitizedSelection = selection.replace(/[\r\n]+/g, " ");
-        defaultSummary = `${sanitizedSelection} (${author}) in ${displayChannelName}`;
+        fallbackSummary = `${sanitizedSelection} (${author}) in ${displayChannelName}`.trim();
     } else {
-        defaultSummary = `Message from ${author} in ${displayChannelName}`;
+        fallbackSummary = `Message from ${author} in ${displayChannelName}`.trim();
     }
 
     // Prefix付与はここでは行わなくなった (Modalで行う)
 
     const result = {
-        defaultSummary: defaultSummary, // promptではなくmodal用に保持する
+        defaultSummary: fallbackSummary, // テンプレート適用前の後方互換用タイトル
+        summary: fallbackSummary,
         content,
+        selection: sanitizedSelection,
+        message: sanitizedSelection || content,
         author,
         timestamp,
         serverName,
         channelName,
         messageLink
     };
+    const templatedSummary = buildPreviewText(titleTemplate, result).trim();
+    result.defaultSummary = templatedSummary || fallbackSummary;
 
     console.log("[Discord-Jira] Extracted Data:", result);
     return result;
@@ -453,14 +532,12 @@ function ensureJiraTicketModalStyles() {
             gap: 8px;
         }
 
-        .jira-ext-pill,
-        .jira-ext-parent-option {
+        .jira-ext-pill {
             position: relative;
             cursor: pointer;
         }
 
-        .jira-ext-pill input,
-        .jira-ext-parent-option input {
+        .jira-ext-pill input {
             position: absolute;
             opacity: 0;
             pointer-events: none;
@@ -494,50 +571,6 @@ function ensureJiraTicketModalStyles() {
             font-weight: 700;
         }
 
-        .jira-ext-parent-list {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8px;
-            max-height: 220px;
-            overflow-y: auto;
-            padding: 10px;
-            border: 1px solid #e5ebf5;
-            border-radius: 8px;
-            background: #ffffff;
-        }
-
-        .jira-ext-parent-option span {
-            display: flex;
-            align-items: center;
-            min-height: 38px;
-            padding: 9px 10px;
-            border: 1px solid #d7deea;
-            border-radius: 8px;
-            background: #f9fbff;
-            color: #25324a;
-            font-size: 12px;
-            font-weight: 700;
-            overflow-wrap: anywhere;
-            transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
-        }
-
-        .jira-ext-parent-option input:checked + span {
-            border-color: #0052cc;
-            background: #edf4ff;
-            box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.12);
-        }
-
-        .jira-ext-parent-option.is-flashed span {
-            background: #e7f7ee;
-            border-color: #32a467;
-        }
-
-        .jira-ext-preview-grid {
-            display: grid;
-            grid-template-columns: 1fr 1.2fr;
-            gap: 12px;
-        }
-
         .jira-ext-preview-card {
             min-width: 0;
             border: 1px solid #d7deea;
@@ -564,6 +597,19 @@ function ensureJiraTicketModalStyles() {
             overflow-wrap: anywhere;
             max-height: 190px;
             overflow: auto;
+        }
+
+        .jira-ext-body-editor {
+            width: 100%;
+            min-height: 240px;
+            resize: vertical;
+            margin: 0;
+            padding: 12px;
+            border: 0;
+            background: #ffffff;
+            color: #25324a;
+            font: 12px/1.5 Consolas, "Courier New", monospace;
+            outline: none;
         }
 
         .jira-ext-modal-footer {
@@ -606,14 +652,6 @@ function ensureJiraTicketModalStyles() {
                 padding: 12px;
             }
 
-            .jira-ext-parent-list {
-                grid-template-columns: 1fr;
-            }
-
-            .jira-ext-preview-grid {
-                grid-template-columns: 1fr;
-            }
-
             .jira-ext-modal-footer {
                 flex-direction: column-reverse;
             }
@@ -628,6 +666,9 @@ function ensureJiraTicketModalStyles() {
 
 function buildPreviewText(template, data) {
     return template
+        .replace(/{summary}/g, data.summary || '')
+        .replace(/{selection}/g, data.selection || '')
+        .replace(/{message}/g, data.message || data.selection || data.content || '')
         .replace(/{author}/g, data.author || '')
         .replace(/{server}/g, data.serverName || '')
         .replace(/{channel}/g, data.channelName || '')
@@ -657,10 +698,8 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
             subtitle: "Review the title and routing before sending this Discord message to Jira.",
             prefixLabel: "Prefix (Optional)",
             titleLabel: "Ticket Title",
-            previewLabel: "Preview",
-            titlePreview: "Issue Title",
-            bodyPreview: "Description",
-            parentLabel: "Parent Issue / Epic (Optional)",
+            previewLabel: "Review / Edit",
+            bodyPreview: "Description (Editable)",
             selectable: "Selectable",
             none: "None",
             cancel: "Cancel",
@@ -670,12 +709,10 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
         ja: {
             header: "Jiraチケットを作成",
             subtitle: "タイトルと紐付け先を確認してから、DiscordメッセージをJiraに送ります。",
-            prefixLabel: "接頭辞を選ぶ (任意)",
+            prefixLabel: "接頭辞/エピックを選ぶ (任意)",
             titleLabel: "チケットタイトル",
-            previewLabel: "プレビュー",
-            titlePreview: "課題タイトル",
-            bodyPreview: "本文",
-            parentLabel: "親課題 / エピック (任意)",
+            previewLabel: "確認・編集",
+            bodyPreview: "本文（編集可）",
             selectable: "選択可",
             none: "なし",
             cancel: "キャンセル",
@@ -731,8 +768,6 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
             field.appendChild(label);
             return field;
         };
-        let updateTitlePreview = () => {};
-
         // --- Prefix Selection ---
         if (prefixPresets && prefixPresets.length > 0) {
             const prefixField = makeField(t.prefixLabel, t.selectable);
@@ -751,8 +786,6 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
             // Previous logic was "always apply". Now "selectable".
             // Let's default to the first one for convenience, as users likely want a prefix if they set them.
             pNoneRadio.checked = false;
-            pNoneRadio.addEventListener('change', () => updateTitlePreview());
-
             const pNoneText = document.createElement('span');
             pNoneText.textContent = t.none;
             pNoneLabel.appendChild(pNoneRadio);
@@ -769,22 +802,6 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
                 pRadio.value = p;
 
                 if (idx === 0) pRadio.checked = true; // Default to first
-
-                // Prefix 選択時に対応する Epic を自動選択
-                pRadio.addEventListener('change', () => {
-                    updateTitlePreview();
-                    if (pRadio.checked && prefixEpicMap[p]) {
-                        const targetEpic = prefixEpicMap[p];
-                        const epicRadios = modal.querySelectorAll('input[name="jiraParentKey"]');
-                        epicRadios.forEach(er => {
-                            if (er.value === targetEpic) {
-                                er.checked = true;
-                                er.parentElement.classList.add('is-flashed');
-                                setTimeout(() => { er.parentElement.classList.remove('is-flashed'); }, 600);
-                            }
-                        });
-                    }
-                });
 
                 const pText = document.createElement('span');
                 pText.textContent = p;
@@ -816,86 +833,19 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
         modalBody.appendChild(titleField);
 
         const previewField = makeField(t.previewLabel);
-        const previewGrid = document.createElement('div');
-        previewGrid.className = 'jira-ext-preview-grid';
-
-        const titlePreviewCard = document.createElement('div');
-        titlePreviewCard.className = 'jira-ext-preview-card';
-        const titlePreviewLabel = document.createElement('div');
-        titlePreviewLabel.className = 'jira-ext-preview-title';
-        titlePreviewLabel.textContent = t.titlePreview;
-        const titlePreview = document.createElement('pre');
-        titlePreview.className = 'jira-ext-preview-content';
-        titlePreviewCard.appendChild(titlePreviewLabel);
-        titlePreviewCard.appendChild(titlePreview);
-
         const bodyPreviewCard = document.createElement('div');
         bodyPreviewCard.className = 'jira-ext-preview-card';
         const bodyPreviewLabel = document.createElement('div');
         bodyPreviewLabel.className = 'jira-ext-preview-title';
         bodyPreviewLabel.textContent = t.bodyPreview;
-        const bodyPreview = document.createElement('pre');
-        bodyPreview.className = 'jira-ext-preview-content';
-        bodyPreview.textContent = buildPreviewText(descTemplate, previewData);
+        const bodyPreview = document.createElement('textarea');
+        bodyPreview.className = 'jira-ext-body-editor';
+        bodyPreview.value = buildPreviewText(descTemplate, previewData);
         bodyPreviewCard.appendChild(bodyPreviewLabel);
         bodyPreviewCard.appendChild(bodyPreview);
 
-        previewGrid.appendChild(titlePreviewCard);
-        previewGrid.appendChild(bodyPreviewCard);
-        previewField.appendChild(previewGrid);
+        previewField.appendChild(bodyPreviewCard);
         modalBody.appendChild(previewField);
-
-        updateTitlePreview = () => {
-            const checkedPrefix = modal.querySelector('input[name="jiraTitlePrefix"]:checked');
-            const prefix = checkedPrefix && checkedPrefix.value ? `${checkedPrefix.value} ` : '';
-            titlePreview.textContent = `${prefix}${titleInput.value}`;
-        };
-        titleInput.addEventListener('input', updateTitlePreview);
-
-        // Parent Key Selection (If available)
-        let selectedParent = null;
-
-        // プリセットがあればラジオボタンを表示
-        if (parentKeys && parentKeys.length > 0) {
-            const parentField = makeField(t.parentLabel, t.selectable);
-
-            const radioContainer = document.createElement('div');
-            radioContainer.className = 'jira-ext-parent-list';
-
-            // "None" option
-            const noneLabel = document.createElement('label');
-            noneLabel.className = 'jira-ext-parent-option';
-            const noneRadio = document.createElement('input');
-            noneRadio.type = 'radio';
-            noneRadio.name = 'jiraParentKey';
-            noneRadio.value = '';
-            noneRadio.checked = false;
-            const noneText = document.createElement('span');
-            noneText.textContent = t.none;
-            noneLabel.appendChild(noneRadio);
-            noneLabel.appendChild(noneText);
-            radioContainer.appendChild(noneLabel);
-
-            parentKeys.forEach((key, index) => {
-                const label = document.createElement('label');
-                label.className = 'jira-ext-parent-option';
-
-                const radio = document.createElement('input');
-                radio.type = 'radio';
-                radio.name = 'jiraParentKey';
-                radio.value = key;
-                radio.checked = index === 0;
-                const text = document.createElement('span');
-                text.textContent = key;
-
-                label.appendChild(radio);
-                label.appendChild(text);
-                radioContainer.appendChild(label);
-            });
-
-            parentField.appendChild(radioContainer);
-            modalBody.appendChild(parentField);
-        }
 
         // Buttons
         const btnContainer = document.createElement('div');
@@ -919,19 +869,17 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
                 return;
             }
 
-            // Get selected parent
-            const checkedRadio = modal.querySelector('input[name="jiraParentKey"]:checked');
-            const finalParent = checkedRadio ? checkedRadio.value : '';
-
             // Get selected prefix
             const checkedPrefix = modal.querySelector('input[name="jiraTitlePrefix"]:checked');
             const finalPrefix = checkedPrefix ? checkedPrefix.value : '';
+            const finalParent = finalPrefix && prefixEpicMap[finalPrefix] ? prefixEpicMap[finalPrefix] : '';
 
             overlay.remove();
             resolve({
                 summary: finalSummary,
                 parentKey: finalParent,
-                selectedPrefix: finalPrefix
+                selectedPrefix: finalPrefix,
+                descriptionText: bodyPreview.value
             });
         };
 
@@ -949,7 +897,6 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
         };
         document.addEventListener('keydown', escListener);
 
-        updateTitlePreview();
         document.body.appendChild(overlay);
         titleInput.focus();
     });
