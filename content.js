@@ -1,5 +1,81 @@
 let lastClickedElement = null;
 
+const defaultPreviewTemplate = `**Extracted from Discord Message**
+
+- Author: {author}
+- Server: {server}
+- Channel: {channel}
+- Time: {time}
+- Link: [Open Message]({link})
+
+**Message Content**
+
+{content}`;
+
+function cleanDiscordName(value) {
+    if (!value) return "";
+    return value
+        .replace(/\s+/g, " ")
+        .replace(/^#\s*/, "")
+        .replace(/^Text channel\s+/i, "")
+        .replace(/^Voice channel\s+/i, "")
+        .replace(/^テキストチャンネル\s*/, "")
+        .replace(/^ボイスチャンネル\s*/, "")
+        .replace(/\s+\(\d+\)$/, "")
+        .trim();
+}
+
+function getReadableText(element) {
+    if (!element) return "";
+    return cleanDiscordName(
+        element.getAttribute("aria-label") ||
+        element.getAttribute("title") ||
+        element.textContent ||
+        element.innerText ||
+        ""
+    );
+}
+
+function firstReadableFromSelectors(selectors) {
+    for (const selector of selectors) {
+        const elements = document.querySelectorAll(selector);
+        for (const element of elements) {
+            const text = getReadableText(element);
+            if (text && text.toLowerCase() !== "discord") return text;
+        }
+    }
+    return "";
+}
+
+function getChannelNameFromDom() {
+    const fromHeader = firstReadableFromSelectors([
+        '[data-cy="channel-name"]',
+        'section[aria-label*="Channel"] h1',
+        'section[aria-label*="チャンネル"] h1',
+        'main h1',
+        'h1[class*="title"]',
+        '[class*="channelName"]'
+    ]);
+    if (fromHeader) return fromHeader;
+
+    return firstReadableFromSelectors([
+        '[class*="modeSelected"] a[aria-label]',
+        '[class*="modeSelected"] [aria-label]',
+        '[aria-current="page"][aria-label]',
+        '[data-list-item-id^="channels___"] a[aria-label]',
+        '[data-list-item-id^="channels___"][aria-label]'
+    ]);
+}
+
+function getServerNameFromDom() {
+    return firstReadableFromSelectors([
+        'nav [data-list-item-id^="guildsnav___"][aria-label]',
+        'nav [data-list-item-id^="guildsnav___"] [aria-label]',
+        'nav [class*="selected"] a[aria-label]',
+        'nav [class*="selected"] [aria-label]'
+    ]);
+}
+
 // 右クリックされた要素を記録しておく
 document.addEventListener("contextmenu", (event) => {
     lastClickedElement = event.target;
@@ -16,7 +92,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const titlePrefixPresetsStr = request.titlePrefix !== undefined ? request.titlePrefix : "[Discord]";
                 const parentKeyPresetsStr = request.parentKeyPresets || "";
                 const epicPrefixMappingStr = request.epicPrefixMapping || "";
-                const lang = request.lang || "en";
+                const descTemplate = request.descTemplate || defaultPreviewTemplate;
+                const lang = request.lang || "ja";
 
                 // ここではPrefixを付与せず、生の抽出データだけ取得する
                 const data = extractMessageInfo(lastClickedElement);
@@ -38,7 +115,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     .filter(k => k.length > 0);
 
                 // モーダル表示
-                const userInput = await openTicketModal(data.defaultSummary, validParentKeys, validPrefixes, epicPrefixMappingStr, lang);
+                const userInput = await openTicketModal(data.defaultSummary, validParentKeys, validPrefixes, epicPrefixMappingStr, lang, descTemplate, data);
 
                 // データを更新
                 data.summary = userInput.summary;
@@ -164,11 +241,11 @@ function extractMessageInfo(target) {
         // 例: "general | MyServer | Discord"
         const parts = pageTitle.split(" | ");
         if (parts.length >= 3) {
-            channelName = parts[0].trim();
-            serverName = parts[1].trim();
+            channelName = cleanDiscordName(parts[0]);
+            serverName = cleanDiscordName(parts[1]);
         } else if (parts.length === 2) {
             // Channel | Discord (通常DMなど)
-            channelName = parts[0].trim();
+            channelName = cleanDiscordName(parts[0]);
             serverName = ""; // DM等はサーバー名なし
         }
     } else if (pageTitle.includes(" - ")) {
@@ -180,41 +257,21 @@ function extractMessageInfo(target) {
         }
 
         if (parts.length >= 2) {
-            channelName = parts[0].trim();
-            serverName = parts[1].trim();
+            channelName = cleanDiscordName(parts[0]);
+            serverName = cleanDiscordName(parts[1]);
         } else if (parts.length === 1) {
-            channelName = parts[0].trim();
+            channelName = cleanDiscordName(parts[0]);
             serverName = "";
         }
     }
 
     // B. DOMから取得 (バックアップ)
-    if (!serverName && !channelName) {
-        // 左サイドバーの選択済みサーバーアイコンの aria-label を探す
-        // nav[aria-label*="Servers"] > ul > li > div[class*="selected"] ...
-        // 構造が複雑なので、単純に "selected" クラスを持つ要素の aria-label か、ツールチップを探す
-
-        // 1. 直近のDOMヘッダー (画面上部)
-        const headerTitle = document.querySelector('nav h1, h1[class*="title"]');
-        if (headerTitle) {
-            // ヘッダーはサーバー名かチャンネル名の場合があるが、通常はサーバー名が表示されているか？
-            // 最近のUIだとナビゲーションバーにサーバー名がある
-            // しかし信頼性は低い
-        }
-
-        // 2. サイドバーの選択 (home以外)
-        const selectedGuild = document.querySelector('nav [class*="tree-"] [class*="selected-"] a[aria-label], nav [class*="wrapper-"] [class*="selected-"] [aria-label]');
-        if (selectedGuild) {
-            serverName = selectedGuild.getAttribute("aria-label");
-        }
-
-        const channelHeader = document.querySelector('[data-cy="channel-name"]');
-        if (channelHeader) {
-            channelName = channelHeader.innerText;
-        }
-    }
+    if (!channelName) channelName = getChannelNameFromDom();
+    if (!serverName) serverName = getServerNameFromDom();
 
     // C. クリーニング
+    serverName = cleanDiscordName(serverName);
+    channelName = cleanDiscordName(channelName);
     if (serverName.toLowerCase() === "discord") serverName = "";
     if (channelName.toLowerCase() === "discord") channelName = "";
 
@@ -280,7 +337,306 @@ function extractMessageInfo(target) {
 
 // --- Modal UI ---
 
-function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMappingStr = '', lang = 'en') {
+function ensureJiraTicketModalStyles() {
+    if (document.getElementById('jira-ext-modal-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'jira-ext-modal-styles';
+    style.textContent = `
+        #jira-ext-modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(11, 18, 32, 0.62);
+            backdrop-filter: blur(8px);
+            color: #172033;
+            font-family: Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+            font-size: 14px;
+        }
+
+        #jira-ext-modal-overlay * {
+            box-sizing: border-box;
+        }
+
+        .jira-ext-modal {
+            width: min(860px, 96vw);
+            max-height: min(760px, 92vh);
+            overflow: hidden;
+            border: 1px solid #d7deea;
+            border-radius: 10px;
+            background: #f6f8fc;
+            box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr) auto;
+        }
+
+        .jira-ext-modal-header {
+            padding: 20px 22px 16px;
+            border-bottom: 1px solid #e5ebf5;
+            background: #ffffff;
+        }
+
+        .jira-ext-modal-title {
+            margin: 0;
+            font-size: 20px;
+            line-height: 1.25;
+            letter-spacing: 0;
+        }
+
+        .jira-ext-modal-subtitle {
+            margin: 6px 0 0;
+            color: #647184;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .jira-ext-modal-body {
+            overflow-y: auto;
+            padding: 18px 22px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .jira-ext-field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .jira-ext-field-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            color: #172033;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .jira-ext-badge {
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #edf4ff;
+            color: #0052cc;
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .jira-ext-title-input {
+            width: 100%;
+            min-height: 46px;
+            padding: 11px 12px;
+            border: 1px solid #cfd8e6;
+            border-radius: 8px;
+            background: #ffffff;
+            color: #172033;
+            font: inherit;
+            font-size: 15px;
+            transition: border-color 120ms ease, box-shadow 120ms ease;
+        }
+
+        .jira-ext-title-input:focus {
+            border-color: #0052cc;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(0, 82, 204, 0.14);
+        }
+
+        .jira-ext-choice-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .jira-ext-pill,
+        .jira-ext-parent-option {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .jira-ext-pill input,
+        .jira-ext-parent-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .jira-ext-pill span {
+            display: inline-flex;
+            align-items: center;
+            min-height: 34px;
+            padding: 8px 11px;
+            border: 1px solid #cfd8e6;
+            border-radius: 999px;
+            background: #ffffff;
+            color: #25324a;
+            font-size: 12px;
+            font-weight: 700;
+            transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+        }
+
+        .jira-ext-pill input:checked + span {
+            border-color: #0052cc;
+            background: #edf4ff;
+            color: #0052cc;
+            box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.12);
+        }
+
+        .jira-ext-pill small {
+            margin-left: 6px;
+            color: #5f6b7a;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .jira-ext-parent-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 10px;
+            border: 1px solid #e5ebf5;
+            border-radius: 8px;
+            background: #ffffff;
+        }
+
+        .jira-ext-parent-option span {
+            display: flex;
+            align-items: center;
+            min-height: 38px;
+            padding: 9px 10px;
+            border: 1px solid #d7deea;
+            border-radius: 8px;
+            background: #f9fbff;
+            color: #25324a;
+            font-size: 12px;
+            font-weight: 700;
+            overflow-wrap: anywhere;
+            transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+        }
+
+        .jira-ext-parent-option input:checked + span {
+            border-color: #0052cc;
+            background: #edf4ff;
+            box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.12);
+        }
+
+        .jira-ext-parent-option.is-flashed span {
+            background: #e7f7ee;
+            border-color: #32a467;
+        }
+
+        .jira-ext-preview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 12px;
+        }
+
+        .jira-ext-preview-card {
+            min-width: 0;
+            border: 1px solid #d7deea;
+            border-radius: 8px;
+            background: #ffffff;
+            overflow: hidden;
+        }
+
+        .jira-ext-preview-title {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5ebf5;
+            background: #f9fbff;
+            color: #25324a;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .jira-ext-preview-content {
+            margin: 0;
+            padding: 12px;
+            color: #25324a;
+            font: 12px/1.5 Consolas, "Courier New", monospace;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            max-height: 190px;
+            overflow: auto;
+        }
+
+        .jira-ext-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 16px 22px;
+            border-top: 1px solid #e5ebf5;
+            background: #ffffff;
+        }
+
+        .jira-ext-btn {
+            min-width: 118px;
+            border: 0;
+            border-radius: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .jira-ext-btn-secondary {
+            background: #edf1f7;
+            color: #25324a;
+        }
+
+        .jira-ext-btn-primary {
+            background: #0052cc;
+            color: #ffffff;
+            box-shadow: 0 10px 20px rgba(0, 82, 204, 0.24);
+        }
+
+        .jira-ext-btn-primary:hover {
+            background: #0065ff;
+        }
+
+        @media (max-width: 680px) {
+            #jira-ext-modal-overlay {
+                padding: 12px;
+            }
+
+            .jira-ext-parent-list {
+                grid-template-columns: 1fr;
+            }
+
+            .jira-ext-preview-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .jira-ext-modal-footer {
+                flex-direction: column-reverse;
+            }
+
+            .jira-ext-btn {
+                width: 100%;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function buildPreviewText(template, data) {
+    return template
+        .replace(/{author}/g, data.author || '')
+        .replace(/{server}/g, data.serverName || '')
+        .replace(/{channel}/g, data.channelName || '')
+        .replace(/{time}/g, data.timestamp ? new Date(data.timestamp).toLocaleString() : '')
+        .replace(/{link}/g, data.messageLink || '')
+        .replace(/{content}/g, data.content || '');
+}
+
+function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMappingStr = '', lang = 'ja', descTemplate = defaultPreviewTemplate, previewData = {}) {
     // Prefix → Epic マッピングをパース
     const prefixEpicMap = {};
     if (epicPrefixMappingStr) {
@@ -298,9 +654,14 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
     const texts = {
         en: {
             header: "Create Jira Ticket",
+            subtitle: "Review the title and routing before sending this Discord message to Jira.",
             prefixLabel: "Prefix (Optional)",
             titleLabel: "Ticket Title",
+            previewLabel: "Preview",
+            titlePreview: "Issue Title",
+            bodyPreview: "Description",
             parentLabel: "Parent Issue / Epic (Optional)",
+            selectable: "Selectable",
             none: "None",
             cancel: "Cancel",
             create: "Create Ticket",
@@ -308,9 +669,14 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
         },
         ja: {
             header: "Jiraチケットを作成",
+            subtitle: "タイトルと紐付け先を確認してから、DiscordメッセージをJiraに送ります。",
             prefixLabel: "接頭辞を選ぶ (任意)",
             titleLabel: "チケットタイトル",
+            previewLabel: "プレビュー",
+            titlePreview: "課題タイトル",
+            bodyPreview: "本文",
             parentLabel: "親課題 / エピック (任意)",
+            selectable: "選択可",
             none: "なし",
             cancel: "キャンセル",
             create: "チケット作成",
@@ -318,77 +684,64 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
         }
     };
     const t = texts[lang] || texts.en;
+    ensureJiraTicketModalStyles();
 
     return new Promise((resolve, reject) => {
         // 既存のモーダルがあれば削除
         const existing = document.getElementById('jira-ext-modal-overlay');
         if (existing) existing.remove();
 
-        // 1. Create Overlay
         const overlay = document.createElement('div');
         overlay.id = 'jira-ext-modal-overlay';
-        Object.assign(overlay.style, {
-            position: 'fixed',
-            top: '0',
-            left: '0',
-            width: '100%',
-            height: '100%',
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            zIndex: '999999',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            fontSize: '14px',
-            fontFamily: 'sans-serif',
-            color: '#333'
-        });
 
-        // 2. Create Modal Box
         const modal = document.createElement('div');
-        Object.assign(modal.style, {
-            backgroundColor: '#fff',
-            padding: '20px',
-            borderRadius: '8px',
-            width: '400px',
-            maxWidth: '90%',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '15px'
-        });
+        modal.className = 'jira-ext-modal';
         overlay.appendChild(modal);
 
-        // Header
+        const modalHeader = document.createElement('div');
+        modalHeader.className = 'jira-ext-modal-header';
         const header = document.createElement('h2');
+        header.className = 'jira-ext-modal-title';
         header.textContent = t.header;
-        header.style.margin = '0 0 5px 0';
-        header.style.fontSize = '18px';
-        modal.appendChild(header);
+        const subtitle = document.createElement('p');
+        subtitle.className = 'jira-ext-modal-subtitle';
+        subtitle.textContent = t.subtitle;
+        modalHeader.appendChild(header);
+        modalHeader.appendChild(subtitle);
+        modal.appendChild(modalHeader);
+
+        const modalBody = document.createElement('div');
+        modalBody.className = 'jira-ext-modal-body';
+        modal.appendChild(modalBody);
+
+        const makeField = (labelText, badgeText = '') => {
+            const field = document.createElement('div');
+            field.className = 'jira-ext-field';
+            const label = document.createElement('div');
+            label.className = 'jira-ext-field-label';
+            const text = document.createElement('span');
+            text.textContent = labelText;
+            label.appendChild(text);
+            if (badgeText) {
+                const badge = document.createElement('span');
+                badge.className = 'jira-ext-badge';
+                badge.textContent = badgeText;
+                label.appendChild(badge);
+            }
+            field.appendChild(label);
+            return field;
+        };
+        let updateTitlePreview = () => {};
 
         // --- Prefix Selection ---
         if (prefixPresets && prefixPresets.length > 0) {
-            const prefixLabel = document.createElement('label');
-            prefixLabel.textContent = t.prefixLabel;
-            prefixLabel.style.fontWeight = 'bold';
-            prefixLabel.style.fontSize = '12px';
-            modal.appendChild(prefixLabel);
-
+            const prefixField = makeField(t.prefixLabel, t.selectable);
             const prefixContainer = document.createElement('div');
-            Object.assign(prefixContainer.style, {
-                display: 'flex',
-                gap: '10px',
-                flexWrap: 'wrap',
-                marginBottom: '5px'
-            });
+            prefixContainer.className = 'jira-ext-choice-grid';
 
             // "None"
             const pNoneLabel = document.createElement('label');
-            pNoneLabel.style.display = 'flex';
-            pNoneLabel.style.alignItems = 'center';
-            pNoneLabel.style.gap = '5px';
-            pNoneLabel.style.cursor = 'pointer';
+            pNoneLabel.className = 'jira-ext-pill';
 
             const pNoneRadio = document.createElement('input');
             pNoneRadio.type = 'radio';
@@ -398,17 +751,17 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
             // Previous logic was "always apply". Now "selectable".
             // Let's default to the first one for convenience, as users likely want a prefix if they set them.
             pNoneRadio.checked = false;
+            pNoneRadio.addEventListener('change', () => updateTitlePreview());
 
+            const pNoneText = document.createElement('span');
+            pNoneText.textContent = t.none;
             pNoneLabel.appendChild(pNoneRadio);
-            pNoneLabel.appendChild(document.createTextNode(t.none));
+            pNoneLabel.appendChild(pNoneText);
             prefixContainer.appendChild(pNoneLabel);
 
             prefixPresets.forEach((p, idx) => {
                 const pLabel = document.createElement('label');
-                pLabel.style.display = 'flex';
-                pLabel.style.alignItems = 'center';
-                pLabel.style.gap = '5px';
-                pLabel.style.cursor = 'pointer';
+                pLabel.className = 'jira-ext-pill';
 
                 const pRadio = document.createElement('input');
                 pRadio.type = 'radio';
@@ -419,137 +772,138 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
 
                 // Prefix 選択時に対応する Epic を自動選択
                 pRadio.addEventListener('change', () => {
+                    updateTitlePreview();
                     if (pRadio.checked && prefixEpicMap[p]) {
                         const targetEpic = prefixEpicMap[p];
                         const epicRadios = modal.querySelectorAll('input[name="jiraParentKey"]');
                         epicRadios.forEach(er => {
                             if (er.value === targetEpic) {
                                 er.checked = true;
-                                // 視覚的なフィードバック (一瞬光らせるなど)
-                                er.parentElement.style.backgroundColor = '#e6f7ff';
-                                setTimeout(() => { er.parentElement.style.backgroundColor = ''; }, 500);
+                                er.parentElement.classList.add('is-flashed');
+                                setTimeout(() => { er.parentElement.classList.remove('is-flashed'); }, 600);
                             }
                         });
                     }
                 });
 
+                const pText = document.createElement('span');
+                pText.textContent = p;
+
                 pLabel.appendChild(pRadio);
-                pLabel.appendChild(document.createTextNode(p));
+                pLabel.appendChild(pText);
 
                 // 紐付けがある場合、ヒントを表示
                 if (prefixEpicMap[p]) {
-                    const hint = document.createElement('span');
-                    hint.textContent = ` (→ ${prefixEpicMap[p]})`;
-                    hint.style.fontSize = '10px';
-                    hint.style.color = '#0052CC';
-                    hint.style.marginLeft = '2px';
-                    pLabel.appendChild(hint);
+                    const small = document.createElement('small');
+                    small.textContent = `→ ${prefixEpicMap[p]}`;
+                    pText.appendChild(small);
                 }
 
                 prefixContainer.appendChild(pLabel);
             });
-            modal.appendChild(prefixContainer);
+            prefixField.appendChild(prefixContainer);
+            modalBody.appendChild(prefixField);
         }
 
         // Title Input
-        const titleLabel = document.createElement('label');
-        titleLabel.textContent = t.titleLabel;
-        titleLabel.style.fontWeight = 'bold';
-        titleLabel.style.fontSize = '12px';
-        modal.appendChild(titleLabel);
+        const titleField = makeField(t.titleLabel);
 
         const titleInput = document.createElement('input');
         titleInput.type = 'text';
         titleInput.value = defaultSummary;
-        Object.assign(titleInput.style, {
-            padding: '8px',
-            border: '1px solid #ccc',
-            borderRadius: '4px',
-            width: '100%',
-            boxSizing: 'border-box'
-        });
-        modal.appendChild(titleInput);
+        titleInput.className = 'jira-ext-title-input';
+        titleField.appendChild(titleInput);
+        modalBody.appendChild(titleField);
+
+        const previewField = makeField(t.previewLabel);
+        const previewGrid = document.createElement('div');
+        previewGrid.className = 'jira-ext-preview-grid';
+
+        const titlePreviewCard = document.createElement('div');
+        titlePreviewCard.className = 'jira-ext-preview-card';
+        const titlePreviewLabel = document.createElement('div');
+        titlePreviewLabel.className = 'jira-ext-preview-title';
+        titlePreviewLabel.textContent = t.titlePreview;
+        const titlePreview = document.createElement('pre');
+        titlePreview.className = 'jira-ext-preview-content';
+        titlePreviewCard.appendChild(titlePreviewLabel);
+        titlePreviewCard.appendChild(titlePreview);
+
+        const bodyPreviewCard = document.createElement('div');
+        bodyPreviewCard.className = 'jira-ext-preview-card';
+        const bodyPreviewLabel = document.createElement('div');
+        bodyPreviewLabel.className = 'jira-ext-preview-title';
+        bodyPreviewLabel.textContent = t.bodyPreview;
+        const bodyPreview = document.createElement('pre');
+        bodyPreview.className = 'jira-ext-preview-content';
+        bodyPreview.textContent = buildPreviewText(descTemplate, previewData);
+        bodyPreviewCard.appendChild(bodyPreviewLabel);
+        bodyPreviewCard.appendChild(bodyPreview);
+
+        previewGrid.appendChild(titlePreviewCard);
+        previewGrid.appendChild(bodyPreviewCard);
+        previewField.appendChild(previewGrid);
+        modalBody.appendChild(previewField);
+
+        updateTitlePreview = () => {
+            const checkedPrefix = modal.querySelector('input[name="jiraTitlePrefix"]:checked');
+            const prefix = checkedPrefix && checkedPrefix.value ? `${checkedPrefix.value} ` : '';
+            titlePreview.textContent = `${prefix}${titleInput.value}`;
+        };
+        titleInput.addEventListener('input', updateTitlePreview);
 
         // Parent Key Selection (If available)
         let selectedParent = null;
 
         // プリセットがあればラジオボタンを表示
         if (parentKeys && parentKeys.length > 0) {
-            const parentLabel = document.createElement('label');
-            parentLabel.textContent = t.parentLabel;
-            parentLabel.style.fontWeight = 'bold';
-            parentLabel.style.fontSize = '12px';
-            parentLabel.style.marginTop = '5px';
-            modal.appendChild(parentLabel);
+            const parentField = makeField(t.parentLabel, t.selectable);
 
             const radioContainer = document.createElement('div');
-            Object.assign(radioContainer.style, {
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '5px',
-                maxHeight: '150px',
-                overflowY: 'auto',
-                border: '1px solid #eee',
-                padding: '8px',
-                borderRadius: '4px'
-            });
+            radioContainer.className = 'jira-ext-parent-list';
 
             // "None" option
             const noneLabel = document.createElement('label');
-            noneLabel.style.display = 'flex';
-            noneLabel.style.alignItems = 'center';
-            noneLabel.style.gap = '5px';
+            noneLabel.className = 'jira-ext-parent-option';
             const noneRadio = document.createElement('input');
             noneRadio.type = 'radio';
             noneRadio.name = 'jiraParentKey';
             noneRadio.value = '';
-            noneRadio.checked = true; // Default
+            noneRadio.checked = false;
+            const noneText = document.createElement('span');
+            noneText.textContent = t.none;
             noneLabel.appendChild(noneRadio);
-            noneLabel.appendChild(document.createTextNode(t.none));
+            noneLabel.appendChild(noneText);
             radioContainer.appendChild(noneLabel);
 
             parentKeys.forEach((key, index) => {
                 const label = document.createElement('label');
-                label.style.display = 'flex';
-                label.style.alignItems = 'center';
-                label.style.gap = '5px';
-                label.style.cursor = 'pointer';
-                label.style.padding = '2px 4px';
-                label.style.borderRadius = '4px';
-                label.style.transition = 'background-color 0.3s';
+                label.className = 'jira-ext-parent-option';
 
                 const radio = document.createElement('input');
                 radio.type = 'radio';
                 radio.name = 'jiraParentKey';
                 radio.value = key;
+                radio.checked = index === 0;
+                const text = document.createElement('span');
+                text.textContent = key;
 
                 label.appendChild(radio);
-                label.appendChild(document.createTextNode(key));
+                label.appendChild(text);
                 radioContainer.appendChild(label);
             });
 
-            modal.appendChild(radioContainer);
+            parentField.appendChild(radioContainer);
+            modalBody.appendChild(parentField);
         }
 
         // Buttons
         const btnContainer = document.createElement('div');
-        Object.assign(btnContainer.style, {
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '10px',
-            marginTop: '10px'
-        });
+        btnContainer.className = 'jira-ext-modal-footer';
 
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = t.cancel;
-        Object.assign(cancelBtn.style, {
-            padding: '8px 16px',
-            border: 'none',
-            borderRadius: '4px',
-            backgroundColor: '#eee',
-            cursor: 'pointer',
-            color: '#333'
-        });
+        cancelBtn.className = 'jira-ext-btn jira-ext-btn-secondary';
         cancelBtn.onclick = () => {
             overlay.remove();
             reject('cancelled');
@@ -557,16 +911,7 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
 
         const createBtn = document.createElement('button');
         createBtn.textContent = t.create;
-        Object.assign(createBtn.style, {
-            padding: '8px 16px',
-            border: 'none',
-            borderRadius: '4px',
-            backgroundColor: '#0052CC',
-            color: '#white',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            color: '#fff'
-        });
+        createBtn.className = 'jira-ext-btn jira-ext-btn-primary';
         createBtn.onclick = () => {
             const finalSummary = titleInput.value;
             if (!finalSummary) {
@@ -594,14 +939,6 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
         btnContainer.appendChild(createBtn);
         modal.appendChild(btnContainer);
 
-        // Close on outside click
-        overlay.onclick = (e) => {
-            if (e.target === overlay) {
-                overlay.remove();
-                reject('cancelled');
-            }
-        };
-
         // Esc key to close
         const escListener = (e) => {
             if (e.key === "Escape") {
@@ -612,6 +949,7 @@ function openTicketModal(defaultSummary, parentKeys, prefixPresets, epicPrefixMa
         };
         document.addEventListener('keydown', escListener);
 
+        updateTitlePreview();
         document.body.appendChild(overlay);
         titleInput.focus();
     });

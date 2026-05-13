@@ -14,10 +14,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "createJiraTicket") {
 
         // 設定からPrefixとParentKey(Presets)と詳細設定を取得してContent Scriptに渡す
-        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '', epicPrefixMapping: '', lang: 'en' }, (items) => {
+        chrome.storage.sync.get({ titlePrefix: '[Discord]', parentKey: '', epicPrefixMapping: '', descTemplate: defaultTemplate, lang: 'ja' }, (items) => {
             const titlePrefix = items.titlePrefix;
             const parentKeyPresets = items.parentKey;
             const epicPrefixMapping = items.epicPrefixMapping;
+            const descTemplate = items.descTemplate;
             const lang = items.lang;
 
             // Content scriptにメッセージを送ってデータ抽出を依頼
@@ -26,6 +27,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
                 titlePrefix: titlePrefix,
                 parentKeyPresets: parentKeyPresets,
                 epicPrefixMapping: epicPrefixMapping,
+                descTemplate: descTemplate,
                 lang: lang
             }, (response) => {
                 if (chrome.runtime.lastError) {

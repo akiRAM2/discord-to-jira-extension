@@ -4,162 +4,589 @@
 <head>
   <meta charset="utf-8">
   <style>
+    :root {
+      --bg: #f4f6fa;
+      --panel: #ffffff;
+      --panel-soft: #f9fbff;
+      --border: #d7deea;
+      --border-soft: #e9eef7;
+      --text: #182033;
+      --muted: #647184;
+      --accent: #0052CC;
+      --accent-hover: #0065FF;
+      --accent-soft: #edf4ff;
+      --success: #1f7a3f;
+      --warning: #946200;
+      --warning-soft: #fff7e8;
+      --shadow: 0 14px 36px rgba(31, 43, 65, 0.10);
+    }
+
     body {
-      font-family: sans-serif;
-      padding: 20px;
-      width: 400px;
+      font-family: Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+      margin: 0;
+      padding: 0;
+      width: 960px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .shell {
+      padding: 24px;
     }
 
     h1 {
-      font-size: 16px;
-      margin-bottom: 20px;
+      font-size: 24px;
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 14px;
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    .page-note {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      max-width: 620px;
     }
 
     .header-row {
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
+      gap: 16px;
       margin-bottom: 20px;
     }
 
-    .language-select {
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .guide {
+      position: sticky;
+      top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .guide-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    .guide-title {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .guide-text {
+      margin: 0;
+      color: var(--muted);
       font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .step-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 26px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .step-number {
+      display: inline-grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .step-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .step-text {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .content-stack {
+      min-width: 0;
+    }
+
+    .language-select {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 12px;
+      white-space: nowrap;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #fff;
+    }
+
+    .language-select label {
+      display: inline-flex;
+      align-items: center;
+      margin: 0;
+      padding: 5px 10px;
+      border-radius: 999px;
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .language-select input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .language-select label:has(input:checked) {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px 14px;
+      border-bottom: 1px solid var(--border-soft);
+      background: linear-gradient(180deg, #ffffff, #fbfcff);
+    }
+
+    .section-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 5px 0 0;
+    }
+
+    .section-body {
+      padding: 18px;
     }
 
     .form-group {
-      margin-bottom: 15px;
+      margin-bottom: 16px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .field-row.compact {
+      grid-template-columns: 1fr 220px;
+    }
+
+    .field-row.three {
+      grid-template-columns: 1fr 1fr 180px;
+    }
+
+    .field-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     label {
-      display: block;
-      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
       font-weight: bold;
       font-size: 12px;
     }
 
-    input {
+    .badge {
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 4px 7px;
+    }
+
+    .badge.required {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .badge.optional {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    input,
+    textarea,
+    select {
       width: 100%;
-      padding: 8px;
+      padding: 9px 10px;
       box-sizing: border-box;
-      border: 1px solid #ccc;
-      border-radius: 4px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      min-height: 38px;
+      transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+    }
+
+    textarea {
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(0, 82, 204, 0.12);
+      outline: none;
     }
 
     button {
-      background-color: #0052CC;
+      background-color: var(--accent);
       color: white;
       border: none;
-      padding: 10px 20px;
-      border-radius: 4px;
+      padding: 11px 20px;
+      border-radius: 6px;
       cursor: pointer;
       width: 100%;
+      font-weight: 700;
+      box-shadow: 0 8px 18px rgba(0, 82, 204, 0.22);
     }
 
     button:hover {
-      background-color: #0065FF;
+      background-color: var(--accent-hover);
     }
 
     .status {
-      margin-top: 10px;
+      margin-top: 8px;
       font-size: 12px;
-      color: green;
+      color: var(--success);
       display: none;
       text-align: center;
     }
 
     .note {
       font-size: 11px;
-      color: #666;
-      margin-top: 4px;
+      color: var(--muted);
+      margin-top: 6px;
+      line-height: 1.5;
     }
 
     a {
-      color: #0052CC;
+      color: var(--accent);
       text-decoration: none;
     }
 
     a:hover {
       text-decoration: underline;
     }
+
+    .mapping-box {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--border-soft);
+      border-radius: 6px;
+      background-color: var(--panel-soft);
+    }
+
+    .mapping-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 28px minmax(180px, 1fr) 34px;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--border-soft);
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .mapping-arrow {
+      color: var(--muted);
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .mapping-remove,
+    .mapping-add {
+      border: 1px solid var(--border);
+      box-shadow: none;
+      background: #fff;
+      color: var(--text);
+    }
+
+    .mapping-remove {
+      display: inline-grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border-radius: 6px;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .mapping-add {
+      width: auto;
+      align-self: flex-start;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-weight: 800;
+    }
+
+    .mapping-add:hover,
+    .mapping-remove:hover {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .hidden-storage {
+      display: none;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 2px 0 0;
+    }
+
+    .actions button {
+      max-width: 260px;
+    }
+
+    .actions .status {
+      margin: 0;
+      text-align: left;
+    }
+
+    @media (max-width: 780px) {
+      body {
+        width: auto;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .guide {
+        position: static;
+      }
+
+      .field-row,
+      .field-row.compact,
+      .field-row.three,
+      .mapping-row {
+        grid-template-columns: 1fr;
+      }
+
+      .mapping-arrow {
+        display: block;
+      }
+    }
   </style>
 </head>
 
 <body>
-  <div class="header-row">
-    <h1 id="pageTitle">Jira Connection Settings</h1>
-    <div class="language-select">
-      <label><input type="radio" name="lang" value="en"> EN</label>
-      <label><input type="radio" name="lang" value="ja"> JA</label>
+  <main class="shell">
+    <div class="header-row">
+      <div>
+        <h1 id="pageTitle">Jira Connection Settings</h1>
+        <p class="page-note" id="pageNote">Set the Jira destination first, then tune how tickets are created from Discord messages.</p>
+      </div>
+      <div class="language-select" aria-label="Language">
+        <label><input type="radio" name="lang" value="en">EN</label>
+        <label><input type="radio" name="lang" value="ja">JA</label>
+      </div>
     </div>
-  </div>
 
-  <div class="form-group">
-    <label for="jiraDomain" id="lblJiraDomain">Jira Domain</label>
-    <input type="text" id="jiraDomain" placeholder="your-domain.atlassian.net">
-  </div>
+    <div class="layout">
+      <aside class="guide">
+        <div class="guide-card">
+          <p class="guide-title" id="guideTitle">Setup Flow</p>
+          <p class="guide-text" id="guideText">Complete the required Jira connection fields first. Optional presets make daily ticket creation faster.</p>
+          <div class="step-list">
+            <div class="step">
+              <span class="step-number">1</span>
+              <div>
+                <p class="step-title" id="guideStepConnection">Connect Jira</p>
+                <p class="step-text" id="guideStepConnectionText">Domain, email, and API token are required.</p>
+              </div>
+            </div>
+            <div class="step">
+              <span class="step-number">2</span>
+              <div>
+                <p class="step-title" id="guideStepTicket">Choose defaults</p>
+                <p class="step-text" id="guideStepTicketText">Set the project, issue type, and due date offset.</p>
+              </div>
+            </div>
+            <div class="step">
+              <span class="step-number">3</span>
+              <div>
+                <p class="step-title" id="guideStepPresets">Add presets</p>
+                <p class="step-text" id="guideStepPresetsText">Prefixes and parent keys appear in the create dialog.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
 
-  <div class="form-group">
-    <label for="email" id="lblEmail">Email Address</label>
-    <input type="text" id="email" placeholder="user@example.com">
-  </div>
+      <div class="content-stack">
+    <section class="section">
+      <div class="section-header">
+        <div>
+          <h2 id="sectionConnection">Connection</h2>
+          <p class="section-note" id="sectionConnectionNote">Required settings for creating issues in Jira.</p>
+        </div>
+      </div>
 
-  <div class="form-group">
-    <label for="apiToken" id="lblApiToken">API Token</label>
-    <input type="password" id="apiToken" placeholder="">
-    <div class="note" id="noteApiToken">Create one at <a
-        href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a></div>
-  </div>
+      <div class="section-body">
+        <div class="form-group">
+          <label for="jiraDomain"><span id="lblJiraDomain">Jira Domain</span><span class="badge required" data-badge="required">Required</span></label>
+          <input type="text" id="jiraDomain" placeholder="your-domain.atlassian.net" autocomplete="off">
+        </div>
 
-  <div class="form-group">
-    <label for="projectKey" id="lblProjectKey">Project Key</label>
-    <input type="text" id="projectKey" placeholder="e.g. SUP, DEV">
-  </div>
+        <div class="field-row">
+          <div class="form-group">
+            <label for="email"><span id="lblEmail">Email Address</span><span class="badge required" data-badge="required">Required</span></label>
+            <input type="text" id="email" placeholder="user@example.com" autocomplete="username">
+          </div>
 
-  <div class="form-group">
-    <label for="issueType" id="lblIssueType">Issue Type Name</label>
-    <input type="text" id="issueType" value="Task">
-  </div>
+          <div class="form-group">
+            <label for="apiToken"><span id="lblApiToken">API Token</span><span class="badge required" data-badge="required">Required</span></label>
+            <input type="password" id="apiToken" placeholder="" autocomplete="current-password">
+            <div class="note" id="noteApiToken">Create one at <a
+                href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian Security</a></div>
+          </div>
+        </div>
+    </section>
 
-  <div class="form-group">
-    <label for="parentKey" id="lblParentKey">Parent Key Presets (Optional)</label>
-    <textarea id="parentKey" rows="3" placeholder="e.g. KAN-5&#10;HCTS-5293"
-      style="width: 100%; padding: 8px; font-family: sans-serif; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;"></textarea>
-    <div class="note" id="noteParentKey">One key per line. If multiple are set, a selection dialog will appear.</div>
-  </div>
+    <section class="section">
+      <div class="section-header">
+        <div>
+          <h2 id="sectionTicket">Ticket Defaults</h2>
+          <p class="section-note" id="sectionTicketNote">These values decide where the Discord message becomes a Jira issue.</p>
+        </div>
+      </div>
 
-  <div class="form-group">
-    <label for="titlePrefix" id="lblTitlePrefix">Title Prefix Presets (Optional)</label>
-    <textarea id="titlePrefix" rows="3" placeholder="e.g. [Discord]&#10;[Bug]&#10;[Request]"
-      style="width: 100%; padding: 8px; font-family: sans-serif; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px;"></textarea>
-    <div class="note" id="notePrefix">One prefix per line. You can select one when creating a ticket.</div>
-  </div>
+      <div class="section-body">
+        <div class="field-row three">
+          <div class="form-group">
+            <label for="projectKey"><span id="lblProjectKey">Project Key</span><span class="badge required" data-badge="required">Required</span></label>
+            <input type="text" id="projectKey" placeholder="e.g. SUP, DEV" autocomplete="off">
+          </div>
 
-  <div class="form-group">
-    <label id="lblEpicPrefixMapping">Prefix → Epic Mapping (Optional)</label>
-    <div id="epicPrefixMappingContainer"
-      style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #eee; border-radius: 4px; background-color: #f9f9f9;">
-      <div class="note" id="noteEpicMapping" style="margin: 0;">Configure which epic to use for each prefix. Update the
-        lists above first, then the mappings will appear here.</div>
+          <div class="form-group">
+            <label for="issueType"><span id="lblIssueType">Issue Type Name</span><span class="badge required" data-badge="required">Required</span></label>
+            <input type="text" id="issueType" value="Task" autocomplete="off">
+          </div>
+        </div>
+
+          <div class="form-group">
+            <label for="dueDateOffset"><span id="lblDueDateOffset">Due Date Offset (Days)</span><span class="badge optional" data-badge="optional">Optional</span></label>
+            <input type="number" id="dueDateOffset" value="2" min="0">
+            <div class="note" id="noteDueDateOffset">Days to add to Start Date for Due Date. (Default: 2)</div>
+          </div>
+        </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <div>
+          <h2 id="sectionRouting">Creation Dialog Choices</h2>
+          <p class="section-note" id="sectionRoutingNote">Add one item per line. These choices appear when you create a ticket.</p>
+        </div>
+      </div>
+
+      <div class="section-body">
+        <div class="form-group">
+          <label for="epicPrefixMapping"><span id="lblEpicPrefixMapping">Prefix → Epic Mapping (Optional)</span><span class="badge optional" data-badge="optional">Optional</span></label>
+          <div id="epicPrefixMappingRows" class="mapping-box"></div>
+          <button type="button" id="addMappingRow" class="mapping-add">+ Add row</button>
+          <textarea id="epicPrefixMapping" class="hidden-storage" aria-hidden="true" tabindex="-1"></textarea>
+          <div class="note" id="noteEpicMapping">One mapping per line. Format: [Prefix]:PARENT-123</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <div>
+          <h2 id="sectionTemplate">Description Template</h2>
+          <p class="section-note" id="sectionTemplateNote">Customize the Jira description generated from the selected Discord message.</p>
+        </div>
+      </div>
+
+      <div class="section-body">
+        <div class="form-group">
+          <label for="descTemplate"><span id="lblDescTemplate">Description Template (Markdown-ish)</span><span class="badge optional" data-badge="optional">Optional</span></label>
+          <textarea id="descTemplate" rows="10" style="font-family: Consolas, monospace;"></textarea>
+          <div class="note" id="noteTemplate">
+            Available: {author}, {server}, {channel}, {time}, {link}, {content}<br>
+            Supports: **Bold**, [Link Title]({link}), - List item
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button id="save">Save Settings</button>
+      <div id="status" class="status">Options saved.</div>
     </div>
-  </div>
-
-  <div class="form-group">
-    <label for="dueDateOffset" id="lblDueDateOffset">Due Date Offset (Days)</label>
-    <input type="number" id="dueDateOffset" value="2" min="0" style="width: 80px;">
-    <div class="note" id="noteDueDateOffset">Days to add to Start Date for Due Date. (Default: 2)</div>
-  </div>
-
-  <div class="form-group">
-    <label for="descTemplate" id="lblDescTemplate">Description Template (Markdown-ish)</label>
-    <textarea id="descTemplate" rows="10" style="width: 100%; padding: 8px; font-family: monospace;"></textarea>
-    <div class="note" id="noteTemplate">
-      Available: {author}, {server}, {channel}, {time}, {link}, {content}<br>
-      Supports: **Bold**, [Link Title]({link}), - List item
+      </div>
     </div>
-  </div>
-
-  <button id="save">Save Settings</button>
-  <div id="status" class="status">Options saved.</div>
+  </main>
 
   <script src="options.js"></script>
 </body>
